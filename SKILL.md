@@ -142,6 +142,19 @@ ffmpeg -i build/x_1920x1080_30.mp4 -i track.mp3 -c copy -shortest build/final.mp
 ```
 (or pass `--audio track.mp3` to render.mjs). Report the absolute path, duration, resolution and size.
 
+**Long exports (more than a few minutes) outlive one browser page.** A headless GPU context that runs
+for thousands of frames eventually wedges: `Runtime.callFunctionOn timed out`, an empty screenshot, a
+dead renderer. So `--recycle N` (default 400) closes and reopens the page every N frames, a failing
+frame is retried up to 3 times on a fresh page, and the run refuses to encode a partial sequence — it
+prints `rendered N/M` from the frames actually on disk and names the missing numbers. Recover with:
+
+```
+node <skill>/scripts/render.mjs --project . --resume        # renders only the frames not on disk
+```
+Never trust a progress line as proof of output: count the PNGs (`ls build/frames | wc -l`) before
+reporting a film as done, and `--height 1080 --jobs 1` is the stable setting for a multi-minute run —
+several 2880×1620 pages is where long exports die first.
+
 ## Hard rules
 
 1. **A frame must render from `t` alone.** No mutable module state across frames; use `ctx.rng(k)`

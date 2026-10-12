@@ -77,12 +77,13 @@ const base = `${server.url}?render=1&hideUI=1&autoboot=on`;
 const probe = await puppeteer.launch({
   executablePath: process.env.MG_BROWSER ?? exe,
   headless: 'new',
+  protocolTimeout: 240000,
   args: ['--no-sandbox', '--disable-gpu-sandbox', ...(opts['gpu-null'] ? ['--use-gl=swiftshader'] : ['--use-gl=angle', '--use-angle=d3d11']), '--enable-unsafe-swiftshader', '--force-device-scale-factor=1', '--hide-scrollbars', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding'],
 });
 
 async function newPage(W, H) {
   const page = await probe.newPage();
-  page.setDefaultTimeout(180000);
+  page.setDefaultTimeout(90000);
   await page.setViewport({ width: W, height: H, deviceScaleFactor: 1 });
   const errs = [];
   page.on('pageerror', (e) => errs.push(String(e.message ?? e)));
@@ -159,31 +160,62 @@ if (!opts.quiet) {
   if (info0.problems?.length) console.log(`timeline notes:\n  ${info0.problems.join('\n  ')}`);
 }
 
+const frameFile = (outDir, i) => join(outDir, `${String(i).padStart(5, '0')}.png`);
 const chunks = Array.from({ length: jobs }, (_, i) => [f0 + Math.floor((total * i) / jobs), f0 + Math.floor((total * (i + 1)) / jobs) - 1]);
 const t0 = Date.now();
-let done = 0;
+let done = 0, skipped = 0, failed = [];
 let slowest = 0;
+const recycle = Math.max(0, +(opts.recycle ?? 400));
 
 async function runChunk([a, b]) {
   if (b < a) return;
-  const { page, errs } = await newPage(W, H);
-  const el = await page.$('#screen');
+  let { page, errs } = await newPage(W, H);
+  let el = await page.$('#screen');
+  let since = 0;
+  // A long export can lose its GPU context or a frame can wedge the renderer; never let one bad
+  // frame end the run. Retry it on a fresh page, and recycle the page on a schedule regardless.
   for (let i = a; i <= b; i++) {
+    if (opts.resume && existsSync(frameFile(outDir, i))) {
+      skipped++;
+      continue;
+    }
     const s = Date.now();
-    const r = await page.evaluate((i, fps) => window.MG.frameAt(i, fps), i, fps);
-    const png = await el.screenshot({ type: 'png' });
-    writeFileSync(join(outDir, `${String(i).padStart(5, '0')}.png`), png);
+    let r = null;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        r = await page.evaluate((i, fps) => window.MG.frameAt(i, fps), i, fps);
+        const png = await el.screenshot({ type: 'png' });
+        if (!png?.length) throw new Error('empty screenshot');
+        writeFileSync(frameFile(outDir, i), png);
+        break;
+      } catch (err) {
+        const last = attempt >= 3;
+        console.error(`\n  frame ${i} attempt ${attempt}: ${String(err.message ?? err).slice(0, 120)}${last ? ' -> giving up' : ', reopening page'}`);
+        if (last) { failed.push(i); break; }
+        try { await page.close(); } catch {}
+        ({ page, errs } = await newPage(W, H));
+        el = await page.$('#screen');
+        since = 0;
+      }
+    }
+    since++;
     const ms = Date.now() - s;
     slowest = Math.max(slowest, ms);
     done++;
     if (!opts.quiet && (done % 15 === 0 || done === total)) {
-      const rate = done / ((Date.now() - t0) / 1000);
+      const rate = done / Math.max((Date.now() - t0) / 1000, 1e-9);
       process.stdout.write(`  ${done}/${total} frames  ${(1000 / Math.max(rate, 0.01)).toFixed(0)} ms/frame  eta ${((total - done) / rate).toFixed(0)}s\r`);
     }
-    if (r.errors > 0 && !opts.quiet && done % 60 === 0) process.stdout.write(`\n  ! ${info0.errors.at(-1)}\n`);
+    if (r?.errors > 0 && !opts.quiet && done % 60 === 0) process.stdout.write(`\n  ! ${info0.errors.at(-1)}\n`);
+    if (recycle > 0 && since >= recycle && i < b) {
+      await page.close().catch(() => {});
+      ({ page, errs } = await newPage(W, H));
+      el = await page.$('#screen');
+      since = 0;
+    }
   }
   if (errs.length) console.error(`\n  page errors (${errs.length}): ${errs.slice(0, 3).join(' | ')}`);
-  await page.close();
+  await page.close().catch(() => {});
 }
 
 process.on('unhandledRejection', (err) => console.error(`
@@ -191,7 +223,17 @@ process.on('unhandledRejection', (err) => console.error(`
 await Promise.all(chunks.map((c) => runChunk(c).catch((err) => console.error(`
   shard ${c} aborted: ${String(err.message ?? err).slice(0, 120)}`))));
 const secs = (Date.now() - t0) / 1000;
-if (!opts.quiet) process.stdout.write(`\n  rendered ${total} frames in ${secs.toFixed(1)}s (${(total / secs).toFixed(1)} fps, slowest ${slowest} ms/frame)\n`);
+if (!opts.quiet) {
+  process.stdout.write(`\n  rendered ${done - failed.length}/${total} frames in ${secs.toFixed(1)}s (${(done / secs).toFixed(1)} fps, slowest ${slowest} ms/frame)`);
+  process.stdout.write(skipped ? `  (${skipped} already on disk, kept)\n` : '\n');
+}
+
+const missing = [];
+for (let i = f0; i <= f1; i++) if (!existsSync(frameFile(outDir, i))) missing.push(i);
+if (missing.length) {
+  const show = missing.slice(0, 12).join(', ') + (missing.length > 12 ? `, ... (${missing.length} total)` : '');
+  fail(`${missing.length} of ${total} frames are missing (${show}). Re-run with --resume to fill only the gaps; frames are in ${outDir}.`);
+}
 
 if (opts['no-encode']) {
   await probe.close();
