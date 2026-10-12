@@ -104,7 +104,7 @@ store / session                                                            // �
 | 切片 | 断言（进 `scripts/smoke.mjs`） |
 |---|---|
 | ① 内核 | `seek(12.3)` 后 `transport.state().t` 误差 < 1/30 s；`due/advance` 单测（跳帧不追帧）；无 `EXT_disjoint_timer_query_webgl2` 时 `GpuTimer.ok === false` 且回落到 CPU 计时 |
-| ② 成本 | `calibrate.mjs` 在模板片产出 5 行 `cost.json`；`Quality.predict` 对未参与拟合的镜头误差 < 20%；`simulate({slow:3})` 报告 `heights` 随负载下降、`resizes` 有界 |
+| ② 成本 | `calibrate.mjs` 为每片产出逐镜头 `[fixed, pixel]`；两尺寸拟合对**未参与拟合的第三尺寸**的预测误差按绝对毫秒报告（相对误差在定值主导的片子里必然难看）；`calibrationShots` 在两个高度采样，`Quality.calibrate` 拒绝不可区分的拟合 |
 | ③ UI | 控制条存在且点击生效；`store` 往返（q/fps/lang）；`t()` 缺键回落到键名且只警告一次；`?render=1` 时 `#ui` 不存在 |
 | ④ 字幕 | `?subs=zh` 画出一行且 `subtitleAt` 的 skip/silent/accent 三条规则各自命中 |
 | 回归 | 原 15 项全过；导出基线逐字节一致 |
@@ -135,3 +135,20 @@ store / session                                                            // �
 3. `simulate()` 用虚拟时钟，`performance.now()` 仍是真实墙钟 → 它测的是"本机渲染成本 × slow"，
    不是墙钟时间；报告里要写清，避免误读为实时表现。
 4. `decodeAudioData` 对 140 s MP3 约需几百毫秒且占内存（f32 ≈ 50 MB）→ 与 prewarm 并行，进度显示在 boot 屏。
+
+## 实施记录（切片①②，2026-10-12）
+
+- **切片①已完成**：`node scripts/player.test.mjs` 13 项、`playcheck.mjs` 13 项、`smoke.mjs` 15 项全过。
+  导出与移植前基线比对：9 帧共 3 个像素差 1/255（dither 落在舍入边界，同一段代码重跑也会遇到）。
+- **上游 `calibrate()` 对便宜的片子会拟合出噪声斜率**。它只在**一个高度**（540p）采样三个镜头，并只拒绝
+  "完全奇异"的方程组。参考片的镜头动辄几十毫秒、像素项真实存在，所以没问题；我们的展示片每帧 1.3–2.3 ms
+  且几乎全是定值成本，结果拟合出 `kp=6.15`（真值≈1），预览反而从 720p 掉到 540p。修法两处：
+  起始标定改在**两个高度**采样（用成本表自带的 sizes），并让 `calibrate()` 在
+  `det <= 1e-3·aa·bb`（两列几乎同向）时退化为单一尺度。修完 `kf=1.53 / kp=0.35`，pick 回到 720p。
+- **AudioClock 的恒定滞后实测 122 ms**：`getOutputTimestamp()` 报的是"已经送到输出的那一刻"，所以画面
+  与**你听到的声音**同步、与墙钟差一个输出延迟。这是正确行为，但测试必须比较两段区间的**增量**，
+  不能拿墙钟当基准（否则会把延迟当成漂移）。
+- `preview.mjs` 从 `node:path` 里 import `existsSync`，在任何现代 Node 上都会立刻崩——预览入口此前
+  从未真正跑起来过。已修，并把"预览能起"纳入 playcheck。
+- 本片在 RTX 5070 Ti 上 1080p 每帧 ~2 ms，成本表带来的差别只是"第一帧就选对"，不是能不能满帧。
+  降质阶梯的价值在弱机：`simulate({slow:30})` 下它按 720→648→540→432→360 走并降到 30 fps。

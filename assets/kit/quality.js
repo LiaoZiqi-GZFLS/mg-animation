@@ -10,6 +10,16 @@
 //      vertical film scales vertically.
 //   3. The `4k` mbCap/motion-blur coupling of the reference player is not part of this file.
 //   4. Names, argument order and the ladder, budgets and thresholds are kept as published.
+//   5. `calibrate()` refuses a two-factor fit its samples cannot support: the reference player tests
+//      only for an exactly singular system, which is enough for its raymarched shots (tens of
+//      milliseconds, a real slope) but lets a film whose frames cost two milliseconds fit noise as a
+//      slope and start the preview two rungs too low. Now the fit needs the two columns to be
+//      genuinely distinct (det > 1e-3 * aa * bb) and otherwise fits the single scale the data does
+//      identify.
+//   6. Also carries `midTime`, `shotMs` and `pickCalibration`, derived from
+//      world-execute-web `src/player/pick.js` at the same commit: `midTime` reads this kit's
+//      `shot.join` (upstream's `shot.transitionIn`) and defaults `dur`/`bias` the way
+//      `timeline.at()` does, and the cost terms take an optional design aspect.
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
@@ -34,6 +44,61 @@ export const megapixels = (h, design) => {
 /** A frame rate's drawing budget: 80% of its interval, leaving the rest to the browser. */
 export const budgetMs = (fps) => (1e3 / fps) * 0.8;
 const presetHeight = (p) => (p === '4k' ? 2160 : parseInt(p, 10));
+/** [fixed, pixel] ms of a shot on the machine the table was made on (the table's default when it does not list it). */
+export const shotTerms = (cost, id) => cost?.shots?.[id] ?? cost?.default ?? [0, 0];
+/** The predicted frame time of a shot at height h on the machine the table was made on. */
+export const shotMs = (cost, id, h = 1080, design) => {
+  const [a, b] = shotTerms(cost, id);
+  return a + b * megapixels(h, design);
+};
+/**
+ * A time inside shot i where only that shot is on screen: the middle of the stretch after its own join
+ * window and before the next shot's (`timeline.at()` blends two shots inside one), kept inside [from, to].
+ * A shot with no such stretch gives the middle of its stretch of the film; null when none of it is inside.
+ */
+export function midTime(shots, i, from = -Infinity, to = Infinity) {
+  const s = shots[i], n = shots[i + 1], j = i > 0 ? s.join : null, k = n?.join;
+  const lo = Math.max(from, s.start), hi = Math.min(to, s.end);
+  if (!(hi > lo)) return null;
+  const pa = Math.max(lo, j ? s.start + (j.dur ?? 0.25) * (1 - (j.bias ?? 0.5)) : -Infinity);
+  const pb = Math.min(hi, k ? n.start - (k.dur ?? 0.25) * (k.bias ?? 0.5) : Infinity);
+  return pb - pa > 0.05 ? (pa + pb) / 2 : (lo + hi) / 2;
+}
+/**
+ * The shots to time when playback starts, so the two factors of the device model (fixed cost and
+ * per-pixel cost) can be told apart: the shot dearest in pixels, a middling one, and the one dearest
+ * in fixed cost. [{ id, t }, …] in that order. Shots the table does not list are used only when it
+ * lists too few. count: how many (at most).
+ */
+export function pickCalibration(cost, shots, { from = 0, to = Infinity, h = 540, count = 3, design } = {}) {
+  const here = shots.map((s, i) => ({ s, t: midTime(shots, i, from, to) })).filter((r) => r.t != null);
+  const known = here.filter((r) => cost?.shots?.[r.s.id]);
+  const pool = (known.length >= Math.min(2, count) ? known : here).map((r) => ({
+    ...r,
+    a: shotTerms(cost, r.s.id)[0],
+    b: shotTerms(cost, r.s.id)[1],
+    ms: shotMs(cost, r.s.id, h, design),
+  }));
+  const out = [];
+  const taken = new Set();
+  const take = (r) => {
+    if (r && !taken.has(r)) {
+      taken.add(r);
+      out.push({ id: r.s.id, t: r.t });
+    }
+  };
+  const dearest = (key) => pool.filter((r) => !taken.has(r)).sort((x, y) => y[key] - x[key] || x.s.start - y.s.start)[0];
+  const byMs = [...pool].sort((x, y) => x.ms - y.ms || x.s.start - y.s.start);
+  const middling = () => {
+    const m = (byMs.length - 1) >> 1;
+    for (let d = 0; d < byMs.length; d++) for (const i of [m - d, m + d]) if (byMs[i] && !taken.has(byMs[i])) return byMs[i];
+    return null;
+  };
+  take(dearest('b'));
+  take(middling());
+  take(dearest('a'));
+  return out.slice(0, count);
+}
 
 export class Quality {
   /**
@@ -189,7 +254,15 @@ export class Quality {
   setMaxHeight(px) {
     this.maxH = LADDER.find((h) => h >= px) ?? 2160;
   }
-  /** Weighted least squares of the two device factors against measured frames (ms^-2 weights: relative error). */
+  /** The shots to time at start-up, chosen so the device's two cost factors can be told apart. */
+  calibrationShots(shots, { from = 0, to = Infinity, h = 540 } = {}) {
+    return pickCalibration(this.cost, shots, { from, to, h, design: this.design });
+  }
+  /**
+   * Weighted least squares of the two device factors against measured frames (ms^-2 weights: relative
+   * error). Two unknowns need data that varies in two directions: if the samples do not separate a
+   * fixed cost from a per-pixel one, say so and fit the one factor the data does identify.
+   */
   calibrate(samples) {
     const rows = samples.map((s) => [...this.terms(s.ids, s.h, [1, 1]), s.ms]);
     let fit = null;
@@ -204,7 +277,10 @@ export class Quality {
         bm += w * B * m;
       }
       const det = aa * bb - ab * ab;
-      if (Math.abs(det) > 1e-12 * aa * bb) {
+      // det / (aa*bb) is 1 - cos^2 between the two columns: below a thousandth they are the same
+      // direction, and the slope it fits is noise dressed as a number.
+      const separable = aa > 0 && bb > 0 && det > 1e-3 * aa * bb;
+      if (separable) {
         const kf = (am * bb - bm * ab) / det;
         const kp = (bm * aa - am * ab) / det;
         if (kf > 0 && kp > 0) fit = [kf, kp];

@@ -137,6 +137,15 @@ picture silently at quarter speed, `,`/`.` step single frames, and `?render=1` b
 node <skill>/scripts/playcheck.mjs --project .      # the player itself, 13 checks
 ```
 
+A film whose frames cost a few milliseconds does not need this, and the preview finds its height on its
+own within a second. When it matters — a heavy film, a weak machine — measure it once:
+
+```
+node <skill>/scripts/calibrate.mjs --project .      # per-shot [fixed, per-Mpx] ms -> analysis/out/cost.json
+```
+The player then predicts the right rung before the first frame instead of learning it from dropped
+ones, and can trade 60 fps for two rungs of resolution where a shot cannot hold both.
+
 ### 6. Render and encode
 
 ```
@@ -212,5 +221,5 @@ files of the preview player are the worked examples. What is *not* licensed is t
 song, its lyrics (including the official Chinese translation), the cover art and the Claude logo:
 never put any of that in a file you author. Render lyric captions from a `.lrc` the user supplies at
 run time, and keep example wording generic.
-- `scripts/new-project.mjs`, `preview.mjs`, `render.mjs`, `sweep.mjs`, `playcheck.mjs`, `analyze.mjs`,
-  `doctor.mjs`, `serve.mjs`.
+- `scripts/new-project.mjs`, `preview.mjs`, `render.mjs`, `sweep.mjs`, `playcheck.mjs`, `calibrate.mjs`,
+  `analyze.mjs`, `doctor.mjs`, `serve.mjs`.

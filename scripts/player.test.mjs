@@ -2,7 +2,7 @@
 //   node scripts/player.test.mjs
 import { strict as assert } from 'node:assert';
 import { due, advance } from '../assets/kit/pace.js';
-import { LADDER, Quality, budgetMs, sizeFor } from '../assets/kit/quality.js';
+import { LADDER, Quality, budgetMs, midTime, pickCalibration, sizeFor } from '../assets/kit/quality.js';
 
 let n = 0;
 const ok = (what) => console.log(`  ok ${++n}  ${what}`);
@@ -98,6 +98,19 @@ const [kf, kp] = qk.speed();
 assert.ok(Math.abs(kf - 3) < 0.35 && Math.abs(kp - 2) < 0.35, `the fit recovers the factors (got ${kf.toFixed(2)}, ${kp.toFixed(2)})`);
 ok('calibrate() separates fixed from per-pixel cost from two sizes');
 
+// --- ... and refuses to invent a slope the samples cannot support ---
+const qn = new Quality({ cost: { default: [1.2, 0.3], shots: { a: [1.23, 0.14], b: [1.3, 0.87] } }, design: { w: 1920, h: 1080 } });
+qn.setSpeed([1, 1]);
+qn.calibrate([
+  { ids: ['a'], h: 540, ms: 1.7 },
+  { ids: ['b'], h: 540, ms: 1.8 },
+  { ids: ['a'], h: 540, ms: 1.75 },
+]);
+const [kf2, kp2] = qn.speed();
+assert.equal(kf2, kp2, 'samples at one height cannot separate the factors: fit the one they do identify');
+assert.ok(kf2 > 1 && kf2 < 1.6, `the single scale still tracks the measurements (got ${kf2.toFixed(2)})`);
+ok('an ill-conditioned calibration degrades to a single scale instead of a wild slope');
+
 // --- a locked preset never auto-changes on its own, and setPreset round-trips ---
 const qs = new Quality({ cost: { default: [1, 1], shots: {} }, design: { w: 1920, h: 1080 }, preset: '540p' });
 assert.equal(qs.onSelection(['x']), 540);
@@ -107,5 +120,22 @@ assert.notEqual(qs.onSelection(['x']), 540, 'auto resumes once the viewer releas
 qs.setPreset('nonsense');
 assert.equal(qs.preset, 'auto', 'an unknown preset falls back to auto rather than NaN');
 ok('presets round-trip and bad input degrades to auto');
+
+// --- calibration points avoid the join windows, where two shots draw at once ---
+const shots = [
+  { id: 'a', start: 0, end: 4 },
+  { id: 'b', start: 4, end: 8, join: { type: 'wipe', dur: 0.5, bias: 0.5 } },
+  { id: 'c', start: 8, end: 12, join: { type: 'fade', dur: 0.4, bias: 1 } },
+];
+assert.ok(Math.abs(midTime(shots, 0) - 1.875) < 1e-9, 'a shot ends where the next shot begins to blend');
+const mb = midTime(shots, 1);
+assert.ok(mb > 4.25 && mb < 7.6, `b is timed where only b is on screen (got ${mb})`);
+assert.ok(midTime(shots, 2) > 8.4, 'c enters behind a join, so its clean stretch starts after it');
+assert.equal(midTime(shots, 0, 5, 9), null, 'a shot outside the window gives no point');
+
+const picks = pickCalibration({ default: [1, 1], shots: { a: [9, 0.1], b: [0.2, 8], c: [1, 1] } }, shots, { design: { w: 16, h: 9 } });
+assert.deepEqual(picks.map((p) => p.id), ['b', 'c', 'a'], 'dearest in pixels, then middling, then dearest in fixed cost');
+assert.ok(picks.every((p) => Number.isFinite(p.t)), 'every pick carries a time to stand at');
+ok('pickCalibration() spends its few samples where the two factors differ most');
 
 console.log(`\nplayer: ${n} checks passed`);

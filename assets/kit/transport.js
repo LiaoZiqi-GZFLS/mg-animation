@@ -10,8 +10,9 @@
 //      talks to it.
 //   3. Adds `setRate`: any rate other than 1 plays silently off a virtual clock, because an
 //      author slows the picture down to look at it, not to hear it.
-//   4. Calibration runs only when the film ships a measured cost table (scripts/calibrate.mjs);
-//      without one the controller learns from the frames it draws, as kit/quality.js describes.
+//   4. Calibration runs only when the film ships a measured cost table (scripts/calibrate.mjs), and
+//      it samples the chosen shots at two heights rather than one: three shots at a single height
+//      cannot separate a fixed cost from a per-pixel one, which is what the fit is for.
 //   5. The storage prefix is per-film (the project's own id), so two films in one browser keep
 //      their own quality choices.
 import { AudioClock } from './clock.js';
@@ -165,24 +166,29 @@ export class Transport {
     return this.state();
   }
   /**
-   * Time a few frames at 540p to learn how fast this device is against the cost table, so the first
-   * real pick is already the right one. The shots are the table's own extremes (kit/quality.js:
-   * pickCalibration), so the two factors can be told apart.
+   * Time a few frames to learn how fast this device is against the cost table, so the first real pick
+   * is already the right one. Two heights, not one: the table's two factors (a cost that does not care
+   * about pixels and one that does) cannot be told apart by samples that only vary the shot.
    */
   calibrate() {
     const px = new Uint8Array(4);
-    const [w, h] = sizeFor(540, this.design);
+    const read = () => this.gl.readPixels(0, 0, 1, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, px);
+    const heights = [...new Set((this.q.cost.sizes ?? []).map((s) => s[1]).filter(Number.isFinite))];
+    const hs = heights.length >= 2 ? heights : [540, Math.min(1080, this.design.h)];
     const samples = [];
-    this.e.setSize(w, h);
-    for (const { t } of this.q.calibrationShots(this.e.timeline.shots, { from: this.start, to: this.e.duration, h })) {
-      const sel = this.e.timeline.at(t);
-      const ids = [sel.a.id, sel.b?.id].filter(Boolean);
-      this.e.draw(t);
-      this.gl.readPixels(0, 0, 1, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, px);
-      const t0 = performance.now();
-      this.e.draw(t);
-      this.gl.readPixels(0, 0, 1, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, px);
-      samples.push({ ids, h, ms: performance.now() - t0 });
+    for (const h of hs) {
+      const [w] = sizeFor(h, this.design);
+      this.e.setSize(w, h);
+      for (const { t } of this.q.calibrationShots(this.e.timeline.shots, { from: this.start, to: this.e.duration, h })) {
+        const sel = this.e.timeline.at(t);
+        const ids = [sel.a.id, sel.b?.id].filter(Boolean);
+        this.e.draw(t);
+        read(); // one warm frame: a first draw at a new time builds caches that are not part of a frame's cost
+        const t0 = performance.now();
+        this.e.draw(t);
+        read();
+        samples.push({ ids, h, ms: performance.now() - t0 });
+      }
     }
     this.q.calibrate(samples);
     this.calibrated = this.q.speed();

@@ -41,7 +41,12 @@
      film that was never calibrated still adapts (upstream required the table its own film ships);
   2. `sizeFor`/`megapixels` take the film's design aspect instead of a hard-coded 16:9;
   3. the reference player's motion-blur and `mbCap` coupling is not carried into this file;
-  4. names, argument order, the ladder, the budgets and every threshold are kept as published.
+  4. names, argument order, the ladder, the budgets and every threshold are kept as published;
+  5. `calibrate()` rejects a two-factor fit the samples cannot support (it tested only for an exactly
+     singular system, which mis-fits films whose frames cost a couple of milliseconds);
+  6. the file also carries `midTime`, `shotMs` and `pickCalibration`, derived from upstream
+     `src/player/pick.js` at the same revision, reading this kit's `shot.join` and an optional design
+     aspect instead of upstream's `shot.transitionIn` and fixed 16:9.
 - The resolution ladder, the up/down rules and the weighted least-squares fit are the upstream work.
 
 ### `assets/kit/transport.js`
@@ -52,7 +57,8 @@
   2. the song is fetched and decoded from a file the project already holds — the reference player's
      remote key service is not part of this kit and nothing here talks to it;
   3. added `setRate`: any rate other than 1 plays silently off a virtual clock;
-  4. calibration runs only when the film ships a measured cost table (`scripts/calibrate.mjs`);
+  4. calibration runs only when the film ships a measured cost table (`scripts/calibrate.mjs`), and
+     samples the chosen shots at two heights rather than one;
   5. the storage prefix is per-film, and `startOptions` gained `?rate=`.
 - The audio-led clock, the vsync pacing, the context-loss recovery and the frame-time feedback loop
   are the upstream design.
