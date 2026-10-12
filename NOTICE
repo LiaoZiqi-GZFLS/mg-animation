@@ -113,6 +113,23 @@
 
 ## Reference only (no code taken)
 
+### `mexicat/pdoom-video` — https://github.com/mexicat/pdoom-video
+
+A second film engine, and a closer sibling than the first: a generative, code-rendered music video
+where every frame is a deterministic function of song time, previewed live in a browser and exported
+frame-for-frame through ffmpeg. Copyright (c) 2026 Giacomo Magnanini, MIT licence.
+
+Nothing from it is copied into this repository. What was taken is method, and it is credited where it
+is used: `references/treatment.md` follows the shape of its `docs/TREATMENT.md` (idea, tone, palette
+per act, the voice each face speaks, and a plate table of `id | window | what it says`), and the six
+type rules in `references/craft.md` — measured word gaps, no haloed type, typographic punctuation
+except in the instrument voice, no kerning across runs, frame-index-seeded noise, one headline at a
+time — are its written rules, restated with the failures we measured ourselves. Its motion-blur
+sampler (`--samples auto`, per-tile convergence) and its word-level lyric alignment (Demucs, CTC
+forced alignment, Whisper) are documented here as the techniques a future revision should reach for;
+neither is implemented in this kit.
+
+
 Everything not listed above is original work. The engine's architecture — shots as data, absolute
 song time, joins declared on the incoming shot, text layers composited before and after grading,
 analysis-driven key functions — was studied in the same upstream project without copying its code.

@@ -45,6 +45,18 @@ export function stagger(i, n, { span = 0.28, from = 0, mode = 'linear' } = {}) {
 }
 
 /** Per-word karaoke lyric line. Shots that stage their own text set `ownsLyrics: true`. */
+/** Typographic punctuation for prose that appears as speech: quotes, ellipsis, dashes, minus. */
+export const smart = (s) =>
+  String(s)
+    .replace(/(\s|^)'(?=\w)/g, '$1‘')
+    .replace(/'/g, '’')
+    .replace(/(^|\s)"(?=\S)/g, '$1“')
+    .replace(/"/g, '”')
+    .replace(/\.\.\./g, '…')
+    .replace(/(\w)--(\w)/g, '$1–$2')
+    .replace(/(^|\s)--(\s|$)/g, '$1—$2')
+    .replace(/(^|\s)-(?=\d)/g, '$1−');
+
 export function drawLyrics(layer, T, t, opts = {}) {
   const line = T.lineAt(t, { hold: opts.hold ?? 0.35 });
   if (!line) return;
@@ -62,8 +74,11 @@ export function drawLyrics(layer, T, t, opts = {}) {
     glowColor: opts.glowColor ?? THEME.primary,
     alpha: fadeOut,
   };
-  const words = line.words?.length ? line.words : [{ text: line.text, start: line.start, end: line.end }];
-  const space = size * 0.26;
+  const raw = line.words?.length ? line.words : [{ text: line.text, start: line.start, end: line.end }];
+  const words = raw.map((w) => (typeof w.text === 'string' && /[\"'\u2013-]/.test(w.text) ? { ...w, text: smart(w.text) } : w));
+  // The gap between words is the font's own space width, not a guess: a fraction of the size that is
+  // too narrow makes adjacent words collide, and the collision reads as a typo rather than as type.
+  const space = Math.max(size * 0.12, layer.measure(' ', o));
   const widths = words.map((w) => layer.measure(w.text, o));
   const total = widths.reduce((a, b) => a + b, 0) + space * (words.length - 1);
   let x = MARGIN.gutter + (MARGIN.safe.x1 - MARGIN.safe.x0 - total) / 2;

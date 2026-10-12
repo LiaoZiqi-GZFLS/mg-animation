@@ -104,3 +104,24 @@ a filtered monochrome view is no longer monochrome.
 - Rotation speed under ~0.6 rad/s reads as calm; above ~2 rad/s reads as a spinner.
 - Parallax: 6–12 px of counter-motion per 100 px of camera travel is enough to read as depth.
 - If a shot feels dead, add a *second* time scale (a slow drift under the fast entrance), not more objects.
+
+## Type — six rules, each of which cost a re-render somewhere
+
+- **Word gaps are measured, never guessed.** `size * 0.26` looked plausible and set two words on top
+  of each other; `drawLyrics` now takes the font's own `measure(' ')`. Any hand-set inter-word or
+  inter-run gap must come from a measurement, not from a fraction of the size.
+- **No outlined or haloed type.** A stroke or a wide glow around a glyph is a second edge fighting the
+  letterform; at video scale it reads as a misprint. Glow *behind* the text (`glow` on a dark field)
+  is fine and is what `TextCanvas.text` does — keep the radius under ~`size / 3`.
+- **Typographic punctuation, except in the instrument voice.** Prose and lyrics go through
+  `C.smart()`: `'` → ’ ‘, `"…"` → “…”, `...` → …, `word--word` → –, `--` between spaces → —,
+  a leading `-` before a digit → −. JetBrains Mono is the terminal speaking, so it keeps straight
+  quotes on purpose — do not run the instrument voice through `smart()`.
+- **Two runs in different faces or sizes have no kerning between them.** `heroWord` next to a mono
+  readout needs its gap set by eye in the frame, not inherited from either string's metrics.
+- **Seed per-frame flicker by the frame index, not by continuous time.** `jitter(i, amp, seed)` with
+  `seed = Math.round(t * fps)` is stable within a frame; a hash of `t` itself changes every sub-frame,
+  so it smears the moment anything averages over the shutter (and it makes the adaptive sampler work
+  for nothing). Noise that should *smooth* out is the one case for continuous `t`.
+- **One title-level string on screen at a time.** Two 40 px+ headlines in the same frame compete for
+  the eye and the viewer reads neither; demote one to the instrument or prose voice.

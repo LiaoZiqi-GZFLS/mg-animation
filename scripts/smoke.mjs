@@ -125,6 +125,10 @@ try {
   await browser.close();
   browser = null;
 
+  const sheet = spawnSync(process.execPath, [join(HERE, 'sheet.mjs'), '--project', proj, '--cuts', '--tile', '240'], { encoding: 'utf8' });
+  const png = join(proj, 'build', 'sheet.png');
+  check('sheet.mjs tiles a whole film into one image', sheet.status === 0 && existsSync(png) && statSync(png).size > 30000, existsSync(png) ? `${Math.round(statSync(png).size / 1024)} KB, ` + String(sheet.stdout.split('\n').filter((l) => /^\s*[A-Z]\d\s/.test(l)).length) + ` cells labelled` : sheet.stderr?.slice(0, 120));
+
   const thumb = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--thumb', 'chart@4.5', '--height', flag('height', 540)], { encoding: 'utf8' });
   const file = (thumb.stdout || '').match(/(\S+\.png)/)?.[1];
   check('render.mjs --thumb writes a PNG', thumb.status === 0 && file && existsSync(file) && statSync(file).size > 20000, file ? `${Math.round(statSync(file).size / 1024)} KB` : thumb.stderr?.slice(0, 100));

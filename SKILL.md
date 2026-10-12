@@ -27,10 +27,17 @@ node <skill>/scripts/doctor.mjs --project <dir>
 Needs Node ≥ 20, ffmpeg on PATH, Edge or Chrome, and `puppeteer-core` installed next to this skill
 (`npm i puppeteer-core --prefix <skill-dir>`). Ask before installing anything.
 
-### 1. Brief, then storyboard as a table
+### 1. Brief, then the treatment, then the table
 
-Pin down: subject, length, aspect, whether there is music/narration, and 3–8 shots. Write the
-storyboard **before** code — one row per shot:
+Pin down: subject, length, aspect, whether there is music/narration, and 3–8 shots.
+
+**Write `TREATMENT.md` in the project first** — the idea in one paragraph, the tone, the palette per
+act with the reason it changes where it does, which face speaks which voice, and the plate table.
+[`references/treatment.md`](references/treatment.md) is the template with a filled example. It costs
+an hour and it is the only place a decision is recorded where a later shot can answer to it; every
+palette hue, caption rule and headline in the film should be traceable to a line of it.
+
+Then the shot table — one row per shot:
 
 | id | at | dur | family | key elements | join in |
 |---|---|---|---|---|---|
@@ -113,6 +120,16 @@ white, motion readable at that instant. Then render a frame *inside* every join
 (`start - dur/2`) to confirm the transition looks intentional. Never report a shot as done from
 geometry or exit codes alone.
 
+One image for the whole film, which is how you see what a page of numbers cannot tell you — a frame
+either side of every cut, or an even stride, or straight off the encoded MP4:
+
+```
+node <skill>/scripts/sheet.mjs --project . --cuts        # or: --every 5.5 | --from build/film.mp4
+```
+Writes `build/sheet.png` and `build/sheet.txt`, which names the shot and join progress in each cell so
+any cell can be found again at full size. Read the sheet against the treatment's plate table: every row
+should be visible, every cell should say what its row claims.
+
 Sweep the whole film for shot errors and exposure before committing to a long export — it draws every
 1.5 s in one page and reports black frames, blowouts and the dark-red error screen:
 
@@ -186,6 +203,8 @@ several 2880×1620 pages is where long exports die first.
 
 1. **A frame must render from `t` alone.** No mutable module state across frames; use `ctx.rng(k)`
    (seeded from the shot id) and `hash11/hash12`. `init()` may build objects, `draw()` may not mutate them.
+   Per-frame flicker seeds on the **frame index** (`Math.round(t * fps)`), never on continuous `t`: a hash
+   of `t` changes inside one frame, so it double-exposes the moment anything averages over a shutter.
 2. **Two coordinate systems.** Text layers: design px, origin top-left, +y down. GL world: origin
    centred, +y up, 1 unit = 1 design px. Bridge them with `C.px2world(x, y)` — never hand-subtract.
 3. **HDR discipline.** Base surfaces stay under 1.0 linear (`rgb(hex, 0.2)` for fills, `0.5` for
@@ -205,7 +224,8 @@ several 2880×1620 pages is where long exports die first.
 
 ## Resources
 
-- `references/craft.md` — durations, easings, margins, grade defaults, stagger and sync numbers.
+- `references/treatment.md` — the style-bible and plate-table template to copy into a new project.
+- `references/craft.md` — durations, easings, margins, grade defaults, stagger, sync and the six type rules.
 - `references/shot-recipes.md` — seven shot families with the kit calls that produce each look.
 - `references/engine-api.md` — every kit module: signatures, uniforms, and the traps found building it.
 - `assets/kit/` — the engine (13 ES modules, no dependencies, no build step).
@@ -228,5 +248,5 @@ where that lives, and `assets/kit/pointcut.js` plus the preview player's eight f
 song, its lyrics (including the official Chinese translation), the cover art and the Claude logo:
 never put any of that in a file you author. Render lyric captions from a `.lrc` the user supplies at
 run time, and keep example wording generic.
-- `scripts/new-project.mjs`, `preview.mjs`, `render.mjs`, `sweep.mjs`, `playcheck.mjs`, `calibrate.mjs`,
-  `analyze.mjs`, `doctor.mjs`, `serve.mjs`.
+- `scripts/new-project.mjs`, `preview.mjs`, `render.mjs`, `sheet.mjs`, `sweep.mjs`, `playcheck.mjs`,
+  `calibrate.mjs`, `analyze.mjs`, `doctor.mjs`, `serve.mjs`.
