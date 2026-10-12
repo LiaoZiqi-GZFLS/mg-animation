@@ -1,6 +1,7 @@
 // Live preview: serve the project and open an on-screen browser window with audio + scrubbing.
 //   node preview.mjs --project . [--port 5173] [--t 12.3] [--no-browser]
-import { existsSync, join, resolve, dirname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { startServer } from './serve.mjs';

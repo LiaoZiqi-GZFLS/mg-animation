@@ -16,11 +16,64 @@
 - This file is licensed under AGPL-3.0-or-later and its source must stay available under the same
   licence, including when the program is run for users over a network.
 
+### `assets/kit/clock.js`
+- Origin: `src/player/clock.js` from **world-execute-web**,
+  https://github.com/FrostNovaOrg/world-execute-web
+- Pinned revision: `29aefca50e40c14498420e1c6e1f3a1037727e17` (2026-10-06)
+- Copyright: (C) 2026 FrostNova
+- Licence: GNU Affero General Public License v3.0 or later
+- Changes: none. The file is reproduced as published, with the SPDX header added.
+- This file is licensed under AGPL-3.0-or-later and its source must stay available under the same
+  licence, including when the program is run for users over a network.
+
+### `assets/kit/pace.js`
+- Origin: `src/player/pace.js` from **world-execute-web** (same revision, copyright and licence as above)
+- Changes: none. The file is reproduced as published, with the SPDX header added.
+
+### `assets/kit/gputimer.js`
+- Origin: `src/player/gputimer.js` from **world-execute-web** (same revision, copyright and licence as above)
+- Changes: none. The file is reproduced as published, with the SPDX header added.
+
+### `assets/kit/quality.js`
+- Origin: `src/player/quality.js` from **world-execute-web** (same revision, copyright and licence as above)
+- Changes:
+  1. the cost table became optional — with no table every guard and the learning loop still run, so a
+     film that was never calibrated still adapts (upstream required the table its own film ships);
+  2. `sizeFor`/`megapixels` take the film's design aspect instead of a hard-coded 16:9;
+  3. the reference player's motion-blur and `mbCap` coupling is not carried into this file;
+  4. names, argument order, the ladder, the budgets and every threshold are kept as published.
+- The resolution ladder, the up/down rules and the weighted least-squares fit are the upstream work.
+
+### `assets/kit/transport.js`
+- Origin: `src/player/player.js` from **world-execute-web** (same revision, copyright and licence as above)
+- Changes:
+  1. drives this kit's engine (a flat shot list, `engine.draw(t)`) instead of the reference engine's
+     chapters, motion blur and output-frame-rate coupling;
+  2. the song is fetched and decoded from a file the project already holds — the reference player's
+     remote key service is not part of this kit and nothing here talks to it;
+  3. added `setRate`: any rate other than 1 plays silently off a virtual clock;
+  4. calibration runs only when the film ships a measured cost table (`scripts/calibrate.mjs`);
+  5. the storage prefix is per-film, and `startOptions` gained `?rate=`.
+- The audio-led clock, the vsync pacing, the context-loss recovery and the frame-time feedback loop
+  are the upstream design.
+
+## Deliberately not taken
+
+- `src/player/vault.js` — the client half of the upstream project's encrypted-audio service (ECDH to
+  their key server, AES-GCM parts of their song). It cannot run without their server, and using it
+  against them would be circumventing their access control, which the AGPL does not grant. This kit
+  plays a local audio file instead.
+- The numbers in `src/player/cost.json.js` — a per-shot frame-cost table measured on the upstream
+  author's own machine (`Apple M5 · Chrome/154.0.8037.95`) for their own film. Only the *mechanism*
+  is reproduced here, fed by `scripts/calibrate.mjs` measuring each project on its own.
+
 ## Reference only (no code taken)
 
-The rest of this repository is original work. The engine's architecture — shots as data, absolute
+Everything not listed above is original work. The engine's architecture — shots as data, absolute
 song time, joins declared on the incoming shot, text layers composited before and after grading,
 analysis-driven key functions — was studied in the same upstream project without copying its code.
+`src/player/ui.js`, `src/player/config.js`, `src/player/subs.js` and `src/subs/*` are still in that
+category; where they are ported later they will get entries here first.
 A read-only checkout for reference may be placed at `third_party/world-execute-web/`; it is not
 committed and is not part of this work's source.
 

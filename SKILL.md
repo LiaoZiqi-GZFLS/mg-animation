@@ -126,6 +126,17 @@ Live review while authoring:
 node <skill>/scripts/preview.mjs --project .        # space play, ←/→ seek, [ ] shot step
 ```
 
+The preview plays on a WebAudio output clock, so a 140 s film cannot drift; frames not yet due at
+vsync are skipped rather than caught up on, so a stall costs dropped pictures instead of slow motion;
+and an adaptive ladder walks 360p…2160p to hold the frame rate on the machine in front of it. Only the
+render height moves — layout and the whole post chain stay as the export has them, so what you see is
+what you get, only softer. `?q=720p` locks a height, `?fps=30` a frame rate, `?rate=0.25` plays the
+picture silently at quarter speed, `,`/`.` step single frames, and `?render=1` builds none of it.
+
+```
+node <skill>/scripts/playcheck.mjs --project .      # the player itself, 13 checks
+```
+
 ### 6. Render and encode
 
 ```
@@ -196,8 +207,10 @@ fully code-generated music video. Look at its `src/engine/` and `src/ch/` when a
 — how a join probes the outgoing camera, how a chapter keeps its own palette, how a shot table drives
 cut points. Copying its code is allowed under AGPL-3.0-or-later **with obligations**: keep the copyright line,
 record the pinned commit, state what changed, and keep the derived file under AGPL — `NOTICE` is
-where that lives, and `assets/kit/pointcut.js` is the worked example. What is *not* licensed is the
+where that lives, and `assets/kit/pointcut.js` plus the five `clock/pace/gputimer/quality/transport`
+files of the preview player are the worked examples. What is *not* licensed is the
 song, its lyrics (including the official Chinese translation), the cover art and the Claude logo:
 never put any of that in a file you author. Render lyric captions from a `.lrc` the user supplies at
 run time, and keep example wording generic.
-- `scripts/new-project.mjs`, `preview.mjs`, `render.mjs`, `doctor.mjs`, `serve.mjs`.
+- `scripts/new-project.mjs`, `preview.mjs`, `render.mjs`, `sweep.mjs`, `playcheck.mjs`, `analyze.mjs`,
+  `doctor.mjs`, `serve.mjs`.

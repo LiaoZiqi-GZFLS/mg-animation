@@ -1,6 +1,8 @@
 // Browser bootstrap: live preview + deterministic frame export hooks (window.MG).
 // Loaded by index.html as <script type="module" src="kit/player.js">. Query knobs:
 //   ?film=./src/film.js  &data=analysis/out  &t=12.3  &still=1  &render=1  &q=1080  &hideUI=1
+// In render mode nothing below touches the clock, the quality controller or the UI: a frame is
+// engine.draw(i/fps) and nothing else, which is what makes an exported film reproducible.
 import { Engine } from './engine.js';
 import { Timeline } from './timeline.js';
 import { Timing, keys } from './timing.js';
@@ -8,8 +10,11 @@ import { Features } from './features.js';
 import { Prog } from './gl.js';
 import { Cam } from './prims.js';
 import * as M from './math.js';
+import { PRESETS, Quality } from './quality.js';
+import { Transport, makeSession, makeStore, startOptions } from './transport.js';
 
 const q = new URLSearchParams(location.search);
+const RENDER = q.has('render');
 
 export async function boot() {
   const filmUrl = q.get('film') ?? './src/film.js';
@@ -40,12 +45,7 @@ export async function boot() {
   const setH = (h) => engine.setSize(Math.round((h * design.w) / design.h), h);
   setH(target);
 
-  let audio = null;
   const audioUrl = def.audio ?? config.audio;
-  if (audioUrl && !q.has('render')) {
-    audio = new Audio(audioUrl);
-    audio.preload = 'auto';
-  }
 
   const MG = {
     engine,
@@ -79,8 +79,8 @@ export async function boot() {
     },
     seek(t) {
       const e = Math.max(0, Math.min(engine.duration, t));
-      if (audio) audio.currentTime = e;
-      engine.draw(e);
+      if (MG.transport) MG.transport.seek(e);
+      else engine.draw(e);
       status(e);
       return e;
     },
@@ -90,14 +90,10 @@ export async function boot() {
       return engine.validate();
     },
     play() {
-      if (!audio) return null;
-      audio.play();
-      MG.playing = true;
-      return MG.playing;
+      return MG.transport?.play() ?? null;
     },
     pause() {
-      audio?.pause();
-      MG.playing = false;
+      MG.transport?.pause();
       return false;
     },
     /** In render mode the canvas CSS size must equal its backing size, or screenshots get resampled. */
@@ -114,52 +110,55 @@ export async function boot() {
   const el = document.getElementById('status');
   function status(t, note) {
     if (!el || document.body.dataset.mode === 'export') return;
+    const s = MG.transport?.state();
     const r = t == null ? null : engine.timeline.at(t);
-    el.textContent = note ?? `${t?.toFixed(2)}s · ${r?.b ? `${r.a.id} → ${r.b.id} p=${r.p.toFixed(2)}` : r?.a?.id ?? '—'} · ${(1000 / Math.max(dtAvg, 0.01)).toFixed(0)} fps`;
+    const fps = s?.measuredFps ?? 0;
+    el.textContent =
+      note ??
+      `${(t ?? s?.t ?? 0).toFixed(2)}s · ${r?.b ? `${r.a.id} → ${r.b.id} p=${r.p.toFixed(2)}` : r?.a?.id ?? s?.shot ?? '—'} · ${fps.toFixed(0)} fps · ${s?.h ?? engine.H}p`;
   }
 
-  if (!q.has('render') && !q.has('hideUI')) {
-    let last = performance.now(), acc = 0, dtAvg = 16.7;
-    const loop = (now) => {
-      const dt = now - last;
-      last = now;
-      acc += dt;
-      if (acc > 250) {
-        dtAvg = acc / 10;
-        acc = 0;
-      }
-      if (MG.playing && audio) {
-        const t = audio.currentTime;
-        if (t >= engine.duration) {
-          MG.pause();
-        } else engine.draw(t);
-        status(t);
-      }
-      requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
+  if (!RENDER) {
+    const store = makeStore(`mg.${def.id ?? 'film'}.player`);
+    let cost = null;
+    try {
+      cost = await (await fetch(new URL(`${dataDir}/cost.json`, location.href).href)).json();
+    } catch {
+      cost = null; // never calibrated: the controller learns from the frames it draws
+    }
+    const quality = new Quality({ cost, design, preset: store.get('q', 'auto'), fps: store.get('fps', 'auto') });
+    const transport = new Transport({ canvas, engine, quality, store, session: makeSession(`mg.${def.id ?? 'film'}`) });
+    Object.assign(MG, { transport, quality, playing: false });
+    const start = startOptions(q, { saved: { q: store.get('q', 'auto'), fps: store.get('fps', 'auto') }, presets: PRESETS });
+    quality.setPreset(start.preset);
+    quality.setFps(start.fps);
+    await transport.prepare({ audioUrl, onProgress: (s, p) => status(null, `${s} ${Math.round(p * 100)}%`) });
+    transport.seek(Number.isFinite(+q.get('t')) ? +q.get('t') : start.t);
+    if (q.get('autoplay') === '1') transport.play();
     addEventListener('keydown', (e) => {
-      const t = audio ? audio.currentTime : 0;
+      const t = transport.t;
       if (e.code === 'Space') {
         e.preventDefault();
-        MG.playing ? MG.pause() : MG.play();
-      } else if (e.code === 'ArrowRight') MG.seek(t + (e.shiftKey ? 5 : 1));
-      else if (e.code === 'ArrowLeft') MG.seek(t - (e.shiftKey ? 5 : 1));
+        transport.toggle();
+      } else if (e.code === 'ArrowRight') transport.seek(t + (e.shiftKey ? 5 : 1));
+      else if (e.code === 'ArrowLeft') transport.seek(t - (e.shiftKey ? 5 : 1));
       else if (e.key === ']' || e.key === '[') {
         const dir = e.key === ']' ? 1 : -1;
-        const cur = timeline.shotAt(t);
-        const i = timeline.shots.indexOf(cur) + dir;
+        const i = timeline.shots.indexOf(timeline.shotAt(t)) + dir;
         const s = timeline.shots[Math.max(0, Math.min(timeline.shots.length - 1, i))];
-        MG.seek(s.start + 0.02);
-      }
+        transport.seek(s.start + 0.02);
+      } else if (e.key === ',') transport.seek(t - 1 / MG.fps);
+      else if (e.key === '.') transport.seek(t + 1 / MG.fps);
+      status(transport.t);
     });
-    if (audio) audio.addEventListener('timeupdate', () => status(audio.currentTime));
   }
 
-  const start = q.get('t');
-  if (start != null) MG.seek(Number(start));
-  else engine.draw(q.has('render') ? 0 : 0);
-  status(Number(start) || 0, 'ready');
+  if (RENDER) {
+    const start = q.get('t');
+    if (start != null) MG.seek(Number(start));
+    else engine.draw(0);
+    status(Number(start) || 0, 'ready');
+  }
   document.body.dataset.ready = '1';
   return MG;
 }
