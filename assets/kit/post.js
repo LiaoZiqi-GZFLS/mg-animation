@@ -214,8 +214,10 @@ export const TRANSITIONS = {
   dissolve: `float n=fbm(uv*7.0+uSeed*3.3);
     float m=smoothstep(n-0.18,n+0.18,sm);
     vec3 edge=a*(1.0-m)+b*m;
-    float glow=smoothstep(0.30,0.0,abs(n-sm))*0.9;
-    o=vec4(edge+vec3(glow)*0.35,1.0);`,
+    // A rim on the advancing noise front, tinted by the picture: a wide flat white band would put
+    // +0.3 linear over most of the frame at mid-progress, and a bright shot would read as a flash.
+    float glow=smoothstep(0.09,0.0,abs(n-sm))*0.45;
+    o=vec4(edge+glow*(edge+vec3(0.22)),1.0);`,
   wipe: `float x=sm*(1.0+2.0*uBias)-uBias;
     float e=smoothstep(x+0.02,x-0.02,uv.x);
     vec3 edge=mix(a,b,e);
