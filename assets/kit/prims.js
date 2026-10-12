@@ -431,6 +431,11 @@ export const shapes = {
     }
     return o;
   },
+  /** Move a point table into world space, so several particle objects can share one buffer. */
+  offset(table, [x = 0, y = 0, z = 0]) {
+    for (let i = 0; i < table.length; i += 4) { table[i] += x; table[i + 1] += y; table[i + 2] += z; }
+    return table;
+  },
   /** Rasterise a string, then sample its lit pixels: the standard "type made of matter" shot. */
   text(count, str, { size = 220, weight = 800, family = 'sans-serif', cx = 0, cy = 0, threshold = 0.4, seed = 8 } = {}) {
     const m = textMask(str, { size, weight, family });

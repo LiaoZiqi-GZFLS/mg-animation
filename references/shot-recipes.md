@@ -209,6 +209,24 @@ foreground furniture must move at different rates.
 
 ---
 
+## Placing a 3D object in a corner of the frame
+
+Keep the camera on the frame axis and move the **geometry**, not the camera:
+
+```js
+const PAN = C.px2world(1420, 425);                 // design px of the panel centre
+ctx.swarm.render(ctx, {
+  a: 'shot:ball', genA: () => shapes.offset(shapes.ball(N, { r: 118 }), PAN),
+  cam: new Cam({ mode: 'persp', eye: [0, 0, FIT_DIST], target: [0, 0, 0] }),
+});
+```
+
+Aiming the camera *at* the panel puts the object in the middle of the screen — the camera's own
+axis always maps to screen centre. Note `px2world` flips y: world +y is up.
+
+A fullscreen `ctx.pass` shader that draws only a sub-rectangle must `discard` outside it; writing
+opaque black there erases whatever an earlier pass in the same shot already drew.
+
 ## Joins
 
 Declared as data on the incoming shot: `transitionIn: { type, dur, bias }`.
@@ -222,6 +240,11 @@ Declared as data on the incoming shot: `transitionIn: { type, dur, bias }`.
 | `glitch` | data/process films; keep displacement under ~10 % of width |
 | `zoom` | punching into the next idea |
 | `pixel` | resolution metaphor; block size collapses as the join completes |
+| `points` | both frames shatter into one rotating ball of tiles and unfold into the next shot; `{ radius, gain, seed, color }` |
+
+`points` is the one join that is not a single screen blend: it is a derived port from upstream (see
+`NOTICE`) and costs two passes plus up to 230k additive points, so keep it to one or two joins per
+film and give it `dur >= 0.4` — the ball needs time to read as one object.
 
 A join must finish before the incoming shot's own entrance begins, otherwise the viewer sees two
 animations competing. During a join the outgoing shot receives `ctx.exiting` with `lt > dur` and the

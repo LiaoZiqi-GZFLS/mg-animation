@@ -85,6 +85,7 @@ try {
   });
   const bad = frames.out.filter((f) => f.mean < 2 || f.mean > 245 || f.white > 0.55);
   check('every sampled frame is a real picture', bad.length === 0, frames.out.map((f) => `${f.t}s mean=${f.mean.toFixed(0)}`).join(' '));
+  check('ported points join renders', frames.out.some((f) => f.join === 'points'), frames.out.filter((f) => f.join === 'points').map((f) => `${f.t}s p=${f.p.toFixed(2)}`).join(' ') || 'no points join sampled');
   check('joins fire on the incoming shot', frames.out.filter((f) => f.join).length >= 3 && frames.out.every((f) => !f.join || (f.p > 0 && f.p < 1)), frames.out.filter((f) => f.join).map((f) => `${f.drawn}:${f.join}@p${f.p.toFixed(2)}`).join(', '));
   check('no shot errors during export sweep', frames.errors.length === 0, frames.errors.slice(0, 2).join(' | '));
   check('validator reports, does not throw', Array.isArray(frames.problems), frames.problems.join('; ') || 'clean');

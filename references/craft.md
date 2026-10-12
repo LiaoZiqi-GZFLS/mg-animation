@@ -50,7 +50,9 @@ Rule of thumb: overshoot on things with physical presence, never on text opacity
 | Gutter between column groups | ≥96 px |
 
 Two-column MG layouts read best with the diagram left (x 136…1000) and the numeric column right
-(x 1100…1784). Do not let a chart's own labels share a column with a readout.
+(x 1100…1784). Do not let a chart's own labels share a column with a readout. A right-aligned
+readout pins its *value* to `x + cols[1]` and grows leftwards, so anchor it to the right edge and
+give the label a negative column: `C.readout(layer, 1784, y, rows, { align: 'right', cols: [-190, 0] })`.
 
 ## Colour
 

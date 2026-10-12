@@ -167,7 +167,8 @@ export default {
       // 3. Spatial: perspective camera, floor grid, a solid prop and particles that morph on a beat-free ramp.
       id: 'world',
       at: 6.4,
-      transitionIn: { type: 'dissolve', dur: 0.45 },
+      // the ported join: both frames shatter into one rotating ball of tiles, then unfold in 3D
+      transitionIn: { type: 'points', dur: 0.45, radius: 0.2, gain: 0.55 },
       draw(ctx) {
         ctx.post.bloom = 0.42;
         ctx.post.ca = 0.1;

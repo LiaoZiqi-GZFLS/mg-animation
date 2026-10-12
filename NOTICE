@@ -1,0 +1,32 @@
+# Notice — third-party source in this repository
+
+## Derived code
+
+### `assets/kit/pointcut.js`
+- Origin: `src/engine/pointcut.js` from **world-execute-web**,
+  https://github.com/FrostNovaOrg/world-execute-web
+- Pinned revision: `29aefca50e40c14498420e1c6e1f3a1037727e17` (2026-10-06)
+- Copyright: (C) 2026 FrostNova
+- Licence: GNU Affero General Public License v3.0 or later
+- Changes: three.js dependency removed (raw WebGL2 `drawArrays(GL_POINTS)` driven by `gl_VertexID`,
+  this kit's `Prog`/`FsQuad`/render targets); a local `hash31f()` replaces the upstream prelude's
+  `hash31`; the ball colour moved from a hard-coded theme constant to a per-call option; the two
+  passes are driven by this kit's join machinery. The motion math and the join's design are the
+  upstream work, unmodified in intent.
+- This file is licensed under AGPL-3.0-or-later and its source must stay available under the same
+  licence, including when the program is run for users over a network.
+
+## Reference only (no code taken)
+
+The rest of this repository is original work. The engine's architecture — shots as data, absolute
+song time, joins declared on the incoming shot, text layers composited before and after grading,
+analysis-driven key functions — was studied in the same upstream project without copying its code.
+A read-only checkout for reference may be placed at `third_party/world-execute-web/`; it is not
+committed and is not part of this work's source.
+
+## Not covered by any licence here
+
+The upstream project's music, song lyrics (including the official Chinese translation), cover art
+and the Claude logo are **not** AGPL-licensed and are not included in this repository. This kit
+renders lyric captions only from a file supplied by the user at run time; no lyric text is stored
+in or distributed with this source.

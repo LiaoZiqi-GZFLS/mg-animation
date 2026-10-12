@@ -113,6 +113,13 @@ white, motion readable at that instant. Then render a frame *inside* every join
 (`start - dur/2`) to confirm the transition looks intentional. Never report a shot as done from
 geometry or exit codes alone.
 
+Sweep the whole film for shot errors and exposure before committing to a long export — it draws every
+1.5 s in one page and reports black frames, blowouts and the dark-red error screen:
+
+```
+node <skill>/scripts/sweep.mjs <project-dir>
+```
+
 Live review while authoring:
 
 ```
@@ -161,10 +168,12 @@ ffmpeg -i build/x_1920x1080_30.mp4 -i track.mp3 -c copy -shortest build/final.mp
 - `references/craft.md` — durations, easings, margins, grade defaults, stagger and sync numbers.
 - `references/shot-recipes.md` — seven shot families with the kit calls that produce each look.
 - `references/engine-api.md` — every kit module: signatures, uniforms, and the traps found building it.
-- `assets/kit/` — the engine (12 ES modules, no dependencies, no build step).
+- `assets/kit/` — the engine (13 ES modules, no dependencies, no build step).
+- `NOTICE` — what was taken from upstream, at which commit, and what was changed.
 - `assets/template/` — `index.html` + a 5-shot `src/film.js`, one shot per family.
 - `scripts/analyze.mjs` — audio → beats/onsets/features; `scripts/.selftest.mjs` verifies it.
 - `scripts/smoke.mjs` — end-to-end check: scaffold, analyse, render, assert the frames are real.
+- `scripts/sweep.mjs` — whole-film error and brightness sweep, ~1 s per 90 frames.
 
 ## Provenance
 
@@ -172,8 +181,10 @@ The architecture and the shot techniques studied here come from
 [world-execute-web](https://github.com/FrostNovaOrg/world-execute-web) (AGPL-3.0), a web player for a
 fully code-generated music video. Look at its `src/engine/` and `src/ch/` when a technique is unclear
 — how a join probes the outgoing camera, how a chapter keeps its own palette, how a shot table drives
-cut points. Two rules: **do not copy its code into a project** (AGPL obligations), and its on-screen
-text is a copyrighted song's lyrics rendered as code, so borrow structure and craft, never content or
-wording. This kit is a clean-room implementation and its example film uses only generic placeholder
-wording.
+cut points. Copying its code is allowed under AGPL-3.0-or-later **with obligations**: keep the copyright line,
+record the pinned commit, state what changed, and keep the derived file under AGPL — `NOTICE` is
+where that lives, and `assets/kit/pointcut.js` is the worked example. What is *not* licensed is the
+song, its lyrics (including the official Chinese translation), the cover art and the Claude logo:
+never put any of that in a file you author. Render lyric captions from a `.lrc` the user supplies at
+run time, and keep example wording generic.
 - `scripts/new-project.mjs`, `preview.mjs`, `render.mjs`, `doctor.mjs`, `serve.mjs`.

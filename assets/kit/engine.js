@@ -3,6 +3,7 @@ import { Prog, Target, FsQuad, makeContext, unbindTextures, SCREEN_VS } from './
 import { Timeline } from './timeline.js';
 import { Cam, GlowLines, Swarm } from './prims.js';
 import { TextCanvas } from './text.js';
+import { PointCut } from './pointcut.js';
 import { Bloom, Uber, POST_DEFAULTS, lerpPost, applyRamps, transitionProg } from './post.js';
 import { resolveConfig, MARGIN } from './config.js';
 import { makeRng, clamp, hashString } from './math.js';
@@ -143,19 +144,22 @@ export class Engine {
       const ta = this._renderShot(a, t, 0, { exiting: true, joinP: p });
       const tb = this._renderShot(b, t, 1, { entering: true, joinP: p });
       frame = this.rt.join;
-      const key = join?.type ?? 'fade';
-      if (!this.transProgs.has(key)) this.transProgs.set(key, transitionProg(gl, key));
-      const mat = this.transProgs.get(key).use();
-      mat.set({
-        uA: { __tex: true, tex: ta.tex },
-        uB: { __tex: true, tex: tb.tex },
-        uRes: [this.W, this.H],
-        uP: p,
-        uBias: join?.bias ?? 0,
-        uSeed: clamp(hashString(a.id + b.id)),
-        uAspect: this.W / this.H,
-      });
-      this.fsq.draw(mat, frame, { clear: true });
+      const hA = { __tex: true, tex: ta.tex }, hB = { __tex: true, tex: tb.tex };
+      if (join.type === 'points') {
+        this.pointcut ??= new PointCut(gl);
+        this.pointcut.render(this.fsq, hA, hB, p, frame, this.W, this.H, {
+          radius: join.radius,
+          gain: join.gain,
+          seed: join.seed ?? Math.floor(clamp(hashString(a.id + b.id)) * 1e6),
+          color: join.color,
+        });
+      } else {
+        const key = join?.type ?? 'fade';
+        if (!this.transProgs.has(key)) this.transProgs.set(key, transitionProg(gl, key));
+        const mat = this.transProgs.get(key).use();
+        mat.set({ uA: hA, uB: hB, uRes: [this.W, this.H], uP: p, uBias: join?.bias ?? 0, uSeed: clamp(hashString(a.id + b.id)), uAspect: this.W / this.H });
+        this.fsq.draw(mat, frame, { clear: true });
+      }
     } else {
       frame = this._renderShot(a, t, 0, {});
     }

@@ -41,7 +41,7 @@ function arg(spec, argv = process.argv.slice(2)) {
 const opts = arg({
   project: 'str', out: 'str', fps: 'num', from: 'num', to: 'num', height: 'num', width: 'num',
   supersample: 'num', crf: 'num', preset: 'str', jobs: 'num', audio: 'str', shot: 'str', thumb: 'str',
-  exportWidth: 'num', 'no-prewarm': 'bool', 'no-encode': 'bool', keep: 'bool', quiet: 'bool', 'gpu-null': 'bool',
+  exportWidth: 'num', resume: 'bool', recycle: 'num', 'no-prewarm': 'bool', 'no-encode': 'bool', keep: 'bool', quiet: 'bool', 'gpu-null': 'bool',
 });
 
 const project = resolve(opts.project ?? '.');
@@ -186,7 +186,10 @@ async function runChunk([a, b]) {
   await page.close();
 }
 
-await Promise.all(chunks.map(runChunk));
+process.on('unhandledRejection', (err) => console.error(`
+  [page] ${String(err?.message ?? err).slice(0, 120)}`));
+await Promise.all(chunks.map((c) => runChunk(c).catch((err) => console.error(`
+  shard ${c} aborted: ${String(err.message ?? err).slice(0, 120)}`))));
 const secs = (Date.now() - t0) / 1000;
 if (!opts.quiet) process.stdout.write(`\n  rendered ${total} frames in ${secs.toFixed(1)}s (${(total / secs).toFixed(1)} fps, slowest ${slowest} ms/frame)\n`);
 

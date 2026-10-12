@@ -1,6 +1,14 @@
 // Text: a Canvas2D layer in design-pixel units, uploaded as a texture.
 // Two layers per frame: `scene` (composited before bloom, so type glows) and `overlay` (after grading, exact colour).
 import { texFromCanvas } from './gl.js';
+import { clamp } from './math.js';
+
+/** Text colours may be CSS strings or linear [r,g,b] from rgb(hex, gain) — accept both. */
+function cssColor(v) {
+  if (!Array.isArray(v)) return v;
+  const e = (c) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(Math.max(c, 0), 1 / 2.4) - 0.055);
+  return '#' + v.map((c) => Math.round(clamp(e(c)) * 255).toString(16).padStart(2, '0')).join('');
+}
 
 export class TextCanvas {
   constructor(design = { w: 1920, h: 1080 }) {
@@ -89,7 +97,7 @@ export class TextCanvas {
     g.textBaseline = o.baseline ?? 'alphabetic';
     g.textAlign = 'left';
     if (o.glow) {
-      g.shadowColor = o.glowColor ?? o.color ?? '#fff';
+      g.shadowColor = cssColor(o.glowColor ?? o.color ?? '#fff');
       g.shadowBlur = o.glow;
     }
     let cx = ox;
@@ -103,10 +111,10 @@ export class TextCanvas {
         g.globalAlpha = clamp01(alpha);
         g.translate(cx + (m?.dx ?? 0), m?.dy ?? 0);
         if (sc !== 1) g.scale(sc, sc);
-        const col = (m && m.color) || o.color || '#ffffff';
+        const col = cssColor((m && m.color) || o.color || '#ffffff');
         if (o.stroke) {
           g.lineWidth = o.strokeWidth ?? 2;
-          g.strokeStyle = o.stroke;
+          g.strokeStyle = cssColor(o.stroke);
           g.strokeText(slice[i], 0, 0);
         }
         g.fillStyle = col;

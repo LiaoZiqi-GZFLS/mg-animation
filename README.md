@@ -111,5 +111,15 @@ layers composited before and after grading, analysis-driven key functions — wa
 code-generated music video. **No code, text or asset from that repository is included here**; this
 engine was written from scratch, and the example film uses only generic placeholder wording.
 
-Copyright © 2026 LiaoZiqi-GZFLS. Licensed under the GNU Affero General Public License v3.0
-(see `LICENSE`). Fonts are not bundled: the template falls back to whatever the system provides.
+Copyright © 2026 LiaoZiqi-GZFLS. Licensed under the GNU Affero General Public License v3.0 or later.
+
+`assets/kit/pointcut.js` is **derived from** `src/engine/pointcut.js` in
+[world-execute-web](https://github.com/FrostNovaOrg/world-execute-web) (Copyright © 2026 FrostNova,
+AGPL-3.0-or-later), pinned at commit `29aefca50e40c14498420e1c6e1f3a1037727e17`; it is a port to raw
+WebGL2 with the three.js dependency removed. See [`NOTICE`](NOTICE) for the full statement of what
+came from where and what was changed. Everything else here is original work.
+
+Music, lyrics, cover art and branding from that project are not included and are not covered by its
+licence. Lyric captions in a film are rendered at run time from a `.lrc` file the user supplies; no
+lyric text is stored in this repository. Fonts are not bundled either — the template falls back to
+whatever the system provides.
