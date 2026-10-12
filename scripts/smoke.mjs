@@ -3,7 +3,7 @@
 //
 //   node scripts/smoke.mjs [--keep] [--height 540]
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -29,10 +29,15 @@ try {
   const scaffold = spawnSync(process.execPath, [join(HERE, 'new-project.mjs'), proj], { encoding: 'utf8' });
   check('scaffold project', scaffold.status === 0 && existsSync(join(proj, 'src', 'film.js')) && existsSync(join(proj, 'kit', 'engine.js')), scaffold.stderr?.slice(0, 80));
 
+  const lrc = join(work, 'lines.lrc');
+  writeFileSync(lrc, ['[00:01.00]line one', '[00:02.00]line two', '[00:03.00]line three', '[00:04.00]line four'].join('\n') + '\n');
+  mkdirSync(join(proj, 'subs'), { recursive: true });
+  writeFileSync(join(proj, 'subs', 'test.json'), JSON.stringify({ lines: { 0: 'ALPHA', 1: 'BETA', 2: 'GAMMA', 3: 'DELTA' }, skip: [], silent: [2] }));
+
   const wav = join(work, 'click.wav');
   const ff = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i',
     'aevalsrc=0.8*sin(140*2*PI*t)*gt(mod(t\\,0.5)\\,0.03):d=6:s=48000', wav], { encoding: 'utf8' });
-  const an = ff.status === 0 && spawnSync(process.execPath, [join(HERE, 'analyze.mjs'), wav, '--out', join(proj, 'analysis', 'out')], { encoding: 'utf8' });
+  const an = ff.status === 0 && spawnSync(process.execPath, [join(HERE, 'analyze.mjs'), wav, '--out', join(proj, 'analysis', 'out'), '--lrc', lrc], { encoding: 'utf8' });
   check('analyse synthetic 120 BPM track', an?.status === 0 && existsSync(join(proj, 'analysis', 'out', 'features.f32')), an?.stdout?.match(/tempo\s+([\d.]+) bpm/)?.[1] + ' bpm');
 
   const puppeteer = (await import(pathToFileURL(join(HERE, '..', 'node_modules', 'puppeteer-core', 'lib', 'puppeteer', 'puppeteer-core.js')).href)).default;
@@ -89,6 +94,31 @@ try {
   check('joins fire on the incoming shot', frames.out.filter((f) => f.join).length >= 3 && frames.out.every((f) => !f.join || (f.p > 0 && f.p < 1)), frames.out.filter((f) => f.join).map((f) => `${f.drawn}:${f.join}@p${f.p.toFixed(2)}`).join(', '));
   check('no shot errors during export sweep', frames.errors.length === 0, frames.errors.slice(0, 2).join(' | '));
   check('validator reports, does not throw', Array.isArray(frames.problems), frames.problems.join('; ') || 'clean');
+  const subPage = await browser.newPage();
+  await subPage.setViewport({ width: 640, height: 360, deviceScaleFactor: 1 });
+  await subPage.goto(server.url + '?render=1&subs=test', { waitUntil: 'load' });
+  await subPage.waitForFunction('window.MG && document.body.dataset.ready === "1"', { timeout: 90000 });
+  const subs = await subPage.evaluate(() => {
+    const e = window.MG.engine;
+    const band = () => {
+      const c = e.text.overlay;
+      const s = c.s;
+      const d = c.g.getImageData(Math.round(140 * s), Math.round(940 * s), Math.round(500 * s), Math.round(60 * s)).data;
+      let ink = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 8) ink++;
+      return ink;
+    };
+    e.draw(1.4);
+    const withSubs = band();
+    e.subs = null;
+    e.draw(1.4);
+    const without = band();
+    return { langs: window.MG.subs?.langs ?? [], at: window.MG.subs?.at('test', 1.4)?.text ?? null, silent: window.MG.subs?.at('test', 3.4)?.text ?? null, withSubs, without };
+  });
+  await subPage.close();
+  check('translated captions load and paint', subs.langs.join() === 'test' && subs.at === 'ALPHA' && subs.withSubs > subs.without + 50, `${subs.at} on screen: ${subs.withSubs} inked px vs ${subs.without} without`);
+  check('a silent line never subtitles, and the line before keeps its room', subs.silent === 'BETA', `over line three the screen still reads ${subs.silent}`);
+
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
 
   server.server.close();

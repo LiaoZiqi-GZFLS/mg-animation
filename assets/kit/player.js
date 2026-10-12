@@ -13,6 +13,7 @@ import * as M from './math.js';
 import { PRESETS, Quality } from './quality.js';
 import { Transport, makeSession, makeStore, startOptions } from './transport.js';
 import { UI } from './ui.js';
+import { Subtitles } from './subs.js';
 import { makeText } from './i18n.js';
 
 const q = new URLSearchParams(location.search);
@@ -118,6 +119,27 @@ export async function boot() {
     el.textContent =
       note ??
       `${(t ?? s?.t ?? 0).toFixed(2)}s · ${r?.b ? `${r.a.id} → ${r.b.id} p=${r.p.toFixed(2)}` : r?.a?.id ?? s?.shot ?? '—'} · ${fps.toFixed(0)} fps · ${s?.h ?? engine.H}p`;
+  }
+
+  // A second caption source beside the film's own: ?subs=zh with subs/zh.json next to index.html.
+  // It works in render mode too, so a film can be exported with translated captions burned in.
+  const wanted = [...new Set([q.get('subs'), ...(config.preview?.subs ?? [])].filter(Boolean))];
+  if (wanted.length && T.lines.length) {
+    const tr = {};
+    for (const lang of wanted) {
+      try {
+        tr[lang] = await (await fetch(new URL(`subs/${lang}.json`, location.href).href)).json();
+      } catch {
+        console.warn(`subs/${lang}.json did not load; the film plays without that language`);
+      }
+    }
+    const subs = new Subtitles(T, tr, { style: config.preview?.subStyle, design });
+    if (subs.langs.length) {
+      engine.subs = subs;
+      engine.subLang = q.get('subs') ?? subs.langs[0];
+      MG.subs = subs;
+      MG.subLang = engine.subLang;
+    }
   }
 
   if (!RENDER) {

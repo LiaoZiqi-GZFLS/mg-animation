@@ -3,6 +3,7 @@
 import { strict as assert } from 'node:assert';
 import { due, advance } from '../assets/kit/pace.js';
 import { LADDER, Quality, budgetMs, midTime, pickCalibration, sizeFor } from '../assets/kit/quality.js';
+import { SUBS, subtitleAt, subtitleEvents, subtitleKey } from '../assets/kit/subs.js';
 
 let n = 0;
 const ok = (what) => console.log(`  ok ${++n}  ${what}`);
@@ -137,5 +138,62 @@ const picks = pickCalibration({ default: [1, 1], shots: { a: [9, 0.1], b: [0.2, 
 assert.deepEqual(picks.map((p) => p.id), ['b', 'c', 'a'], 'dearest in pixels, then middling, then dearest in fixed cost');
 assert.ok(picks.every((p) => Number.isFinite(p.t)), 'every pick carries a time to stand at');
 ok('pickCalibration() spends its few samples where the two factors differ most');
+
+// --- the subtitle schedule: what shows, when it must stop, and where it sits ---
+const T = {
+  lines: [
+    { i: 0, start: 0, end: 4.5 },
+    { i: 1, start: 4, end: 11 },
+    { i: 2, start: 8, end: 10 },
+    { i: 3, start: 12, end: 14 },
+  ],
+  sections: [
+    { id: 'verse', start: 0, end: 6 },
+    { id: 'solo', start: 6, end: 11 },
+    { id: 'last', start: 11, end: 16 },
+  ],
+  sectionAt(t) {
+    return this.sections.find((s) => t >= s.start && t < s.end) ?? null;
+  },
+  section(id) {
+    const s = this.sections.find((x) => x.id === id);
+    if (!s) throw new Error(`no section ${id}`);
+    return s;
+  },
+};
+const all = { 0: 'one', 1: 'two', 2: 'three', 3: 'four' };
+const plain = subtitleEvents(T, all);
+assert.equal(plain.length, 4, 'every line the translation has gets a subtitle');
+assert.ok(Math.abs(plain[0].end - 4) < 1e-9, 'a subtitle holds to the next line, not a second longer');
+assert.equal(plain[0].row, 0);
+assert.equal(plain[1].fadeIn, false, 'a subtitle arriving while the last is up does not fade in');
+
+const quiet = subtitleEvents(T, all, { silent: [2] });
+assert.equal(quiet.length, 3);
+ok('the schedule holds, cuts and drops rows as the reference player does');
+assert.ok(!quiet.some((e) => e.i === 2), 'a silent line stays unsubtitled though the translation has it');
+ok('silent lines stay unsubtitled and hand their room to the line before');
+assert.ok(Math.abs(quiet[1].end - 12) < 1e-9, 'the line before an unsubtitled one inherits its room');
+
+const skipped = subtitleEvents(T, all, { skip: ['last'] });
+assert.ok(Math.abs(skipped[2].end - 11) < 1e-9, 'a subtitle may not run into a section it must skip');
+assert.equal(skipped[2].fadeOut, true, 'cut short, it fades out');
+
+const busy = subtitleEvents(T, all, { rows: [[0, 5]] });
+assert.equal(busy[0].row, 1, 'a subtitle mostly under something else drops a row');
+assert.equal(busy[1].row, 0, 'one mostly clear of it does not');
+
+const coloured = subtitleEvents(T, all, { accent: { verse: '#ff0000' } });
+assert.equal(coloured[0].accent, '#ff0000', 'the mark takes the colour of the section it starts in');
+assert.equal(coloured[2].accent, null, 'and the style default where the section has none');
+ok('skip, rows and per-section accent come from the translation file, not from code');
+
+assert.equal(subtitleAt(plain, 1.0).alpha, 1, 'mid-line it is fully up');
+assert.ok(subtitleAt(plain, 0.05).alpha < 1, 'it fades in over the first tenth');
+assert.equal(subtitleAt(plain, 12), null, 'it is gone the moment the next one is due');
+assert.equal(subtitleKey(subtitleAt(plain, 1.0)), subtitleKey(subtitleAt(plain, 1.2)), 'the same picture shares a draw key');
+assert.equal(subtitleKey(null), 'empty');
+assert.equal(SUBS.hold, 1);
+ok('a subtitle fades in, holds, and is gone the instant the next is due');
 
 console.log(`\nplayer: ${n} checks passed`);

@@ -85,6 +85,23 @@
   interface; drops the paragraph forms (`t.paras`, `t.list`) the preview has no body text for; adds
   `t.has(key)`, which the notice toast uses to tell a key from an already-rendered message.
 
+### `assets/kit/subs.js`
+- Origin: `src/player/subs.js`, `src/subs/schedule.js` and `src/subs/style.js` from
+  **world-execute-web** (same revision, copyright and licence as above)
+- Changes:
+  1. the three are one module, without the bundler's `__exportAll` runtime;
+  2. `src/subs/rules.js` is a film's own code upstream (an accent-per-section function, rows that
+     something else occupies). Nothing here can ship that, so the accent map, the skipped sections,
+     the silent lines and the busy rows come from the translation file as data, and a row range is a
+     `[from, to]` pair rather than a function of the Timing;
+  3. no font is fetched — the reference player loads the one its project ships; this kit names the
+     faces the page already has and takes a `font` block from the film's config;
+  4. drawing goes through this kit's `TextCanvas` and `drawSubtitle` takes a `clear` flag, so a
+     subtitle can be painted beside a shot's own text without wiping it;
+  5. `designWidth` is the film's own design size.
+- The schedule (hold, skip, silent, dropped rows, fade ramps, the draw key) and the subtitle style —
+  its position, shadow passes and the `//` mark — are the upstream work.
+
 ## Deliberately not taken
 - `src/player/vault.js` — the client half of the upstream project's encrypted-audio service (ECDH to
   their key server, AES-GCM parts of their song). It cannot run without their server, and using it
@@ -99,8 +116,9 @@
 Everything not listed above is original work. The engine's architecture — shots as data, absolute
 song time, joins declared on the incoming shot, text layers composited before and after grading,
 analysis-driven key functions — was studied in the same upstream project without copying its code.
-`src/player/subs.js` and `src/subs/*` are still in that
-category; where they are ported later they will get entries here first.
+Every file of upstream `src/player/` is now accounted for above: ported, ported-and-changed, or
+deliberately not taken. `src/engine/` and `src/ch/` remain reference only — studied, not copied — and
+where anything further is ported it gets an entry here first.
 A read-only checkout for reference may be placed at `third_party/world-execute-web/`; it is not
 committed and is not part of this work's source.
 

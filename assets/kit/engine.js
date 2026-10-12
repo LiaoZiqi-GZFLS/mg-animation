@@ -189,6 +189,7 @@ export class Engine {
     const glow = post.bloom > 0.001 ? this.bloom.render(frame.tex, this.W, this.H, post) : (this._clearTarget(this.bloom.t[0]), this.bloom.t[0]);
 
     unbindTextures(gl);
+    if (this.subs && this.subLang) this.subs.paint(this.text.overlay, this.subLang, t);
     const mat = this.uber.prog.use();
     mat.set({ uTex: { __tex: true, tex: frame.tex }, uBloom: glow.handle ?? { __tex: true, tex: glow.tex }, uText: this.text.overlay.upload(gl), uRes: [this.W, this.H], uT: t });
     this.uber.apply(mat, post, {});

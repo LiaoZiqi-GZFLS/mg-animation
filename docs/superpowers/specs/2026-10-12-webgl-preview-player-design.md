@@ -138,7 +138,8 @@ store / session                                                            // �
 
 ## 实施记录（切片①②，2026-10-12）
 
-- **切片①已完成**：`node scripts/player.test.mjs` 13 项、`playcheck.mjs` 13 项、`smoke.mjs` 15 项全过。
+- **切片①②③已完成**（2026-10-12：`player.test.mjs` 17 项、`playcheck.mjs` 17 项、`smoke.mjs` 17 项全过）。
+- **切片①细节**：`node scripts/player.test.mjs` 13 项、`playcheck.mjs` 13 项、`smoke.mjs` 15 项全过。
   导出与移植前基线比对：9 帧共 3 个像素差 1/255（dither 落在舍入边界，同一段代码重跑也会遇到）。
 - **上游 `calibrate()` 对便宜的片子会拟合出噪声斜率**。它只在**一个高度**（540p）采样三个镜头，并只拒绝
   "完全奇异"的方程组。参考片的镜头动辄几十毫秒、像素项真实存在，所以没问题；我们的展示片每帧 1.3–2.3 ms
@@ -150,5 +151,9 @@ store / session                                                            // �
   不能拿墙钟当基准（否则会把延迟当成漂移）。
 - `preview.mjs` 从 `node:path` 里 import `existsSync`，在任何现代 Node 上都会立刻崩——预览入口此前
   从未真正跑起来过。已修，并把"预览能起"纳入 playcheck。
+- **字幕**并入 `kit/subs.js`（schedule+style+player 三合一），画在影片自己的 overlay 通道上，因此和画面
+  一起被分级；`drawSubtitle` 加了 `clear` 参数，否则会把镜头已画的字擦掉。`?subs=zh` 在预览和导出都生效。
+  上游 `rules.js`（逐段 accent 函数、占用行的时间函数）是**那部片子的代码**，无法内置：改为从
+  `subs/<lang>.json` 读数据（`accent` 段色表、`rows` 为 `[from,to]` 字面区间）。
 - 本片在 RTX 5070 Ti 上 1080p 每帧 ~2 ms，成本表带来的差别只是"第一帧就选对"，不是能不能满帧。
   降质阶梯的价值在弱机：`simulate({slow:30})` 下它按 720→648→540→432→360 走并降到 30 fps。

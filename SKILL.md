@@ -136,7 +136,9 @@ the measured frame rate; ⚙ opens quality, frame rate and post-chain switches (
 design under it). Keys: space, ←/→ (shift 5 s), `[`/`]` shot, `,`/`.` frame, `q` lock or release the
 height, `h` hide the bar, `f` fullscreen. `?q=720p` starts locked, `?fps=30` locked to 30, `?rate=0.25`
 plays silently at quarter speed, `?hideUI=1` keeps the keyboard and drops the bar, and `?render=1`
-builds none of it.
+builds none of it. A translated caption track is a data file, not code: `subs/zh.json` with
+`{ lines: { [i]: text }, skip, silent, rows, accent }` over the film's own measured lines, shown by
+`?subs=zh` (it works in render mode too, to burn captions into an export).
 
 ```
 node <skill>/scripts/playcheck.mjs --project .      # the player itself, 17 checks
@@ -221,8 +223,8 @@ fully code-generated music video. Look at its `src/engine/` and `src/ch/` when a
 — how a join probes the outgoing camera, how a chapter keeps its own palette, how a shot table drives
 cut points. Copying its code is allowed under AGPL-3.0-or-later **with obligations**: keep the copyright line,
 record the pinned commit, state what changed, and keep the derived file under AGPL — `NOTICE` is
-where that lives, and `assets/kit/pointcut.js` plus the five `clock/pace/gputimer/quality/transport`
-files of the preview player are the worked examples. What is *not* licensed is the
+where that lives, and `assets/kit/pointcut.js` plus the preview player's eight files
+(`clock/pace/gputimer/quality/transport/ui/i18n/subs`) are the worked examples. What is *not* licensed is the
 song, its lyrics (including the official Chinese translation), the cover art and the Claude logo:
 never put any of that in a file you author. Render lyric captions from a `.lrc` the user supplies at
 run time, and keep example wording generic.
