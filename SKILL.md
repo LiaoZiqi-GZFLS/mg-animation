@@ -165,4 +165,15 @@ ffmpeg -i build/x_1920x1080_30.mp4 -i track.mp3 -c copy -shortest build/final.mp
 - `assets/template/` — `index.html` + a 5-shot `src/film.js`, one shot per family.
 - `scripts/analyze.mjs` — audio → beats/onsets/features; `scripts/.selftest.mjs` verifies it.
 - `scripts/smoke.mjs` — end-to-end check: scaffold, analyse, render, assert the frames are real.
+
+## Provenance
+
+The architecture and the shot techniques studied here come from
+[world-execute-web](https://github.com/FrostNovaOrg/world-execute-web) (AGPL-3.0), a web player for a
+fully code-generated music video. Look at its `src/engine/` and `src/ch/` when a technique is unclear
+— how a join probes the outgoing camera, how a chapter keeps its own palette, how a shot table drives
+cut points. Two rules: **do not copy its code into a project** (AGPL obligations), and its on-screen
+text is a copyrighted song's lyrics rendered as code, so borrow structure and craft, never content or
+wording. This kit is a clean-room implementation and its example film uses only generic placeholder
+wording.
 - `scripts/new-project.mjs`, `preview.mjs`, `render.mjs`, `doctor.mjs`, `serve.mjs`.

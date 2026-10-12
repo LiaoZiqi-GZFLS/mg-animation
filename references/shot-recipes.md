@@ -1,5 +1,8 @@
 # Shot families and how to build each one
 
+> Technique families observed in [world-execute-web](https://github.com/FrostNovaOrg/world-execute-web)
+> (`src/ch/*`); every implementation below is this kit's own API. Study it for craft, copy nothing.
+
 Seven families cover most MG films. Each entry: what it's for, the kit calls, and the failure mode
 that makes it look amateur.
 
