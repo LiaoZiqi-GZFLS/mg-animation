@@ -63,8 +63,29 @@
 - The audio-led clock, the vsync pacing, the context-loss recovery and the frame-time feedback loop
   are the upstream design.
 
-## Deliberately not taken
+### `assets/kit/ui.js`
+- Origin: `src/player/ui.js` from **world-execute-web** (same revision, copyright and licence as above)
+- Changes:
+  1. built for the author rather than the viewer — the bar carries shot ticks, join marks, a
+     one-frame step, a speed row, the shot/join/progress readout, the measured frame rate, the height
+     the controller picked and a badge over the engine's frame errors;
+  2. the reference player's boot screen, warning modal, chapter colour bands, subtitle menu, cover
+     art, volume slider and `subsChoices` are not reproduced;
+  3. styles are injected by the kit, so a film's `index.html` needs no markup for the bar;
+  4. the menu drives this kit's quality presets, frame-rate setting and post-chain override, and
+     persists under the film's own storage prefix.
+- The bar's structure, the pointer-captured scrubber with its scrub-holds-size rule, the idle fade
+  woken by input, the `data-q`/`data-f` menu and the click-stage-to-toggle behaviour are upstream's.
 
+### `assets/kit/i18n.js`
+- Origin: the `makeText` half of `src/player/config.js` from **world-execute-web** (same revision,
+  copyright and licence as above)
+- Changes: reads a film's `preview.text` block instead of the reference project's whole
+  `web.config.json`; ships a default zh/en wording so an unlabelled film still gets a labelled
+  interface; drops the paragraph forms (`t.paras`, `t.list`) the preview has no body text for; adds
+  `t.has(key)`, which the notice toast uses to tell a key from an already-rendered message.
+
+## Deliberately not taken
 - `src/player/vault.js` — the client half of the upstream project's encrypted-audio service (ECDH to
   their key server, AES-GCM parts of their song). It cannot run without their server, and using it
   against them would be circumventing their access control, which the AGPL does not grant. This kit
@@ -78,7 +99,7 @@
 Everything not listed above is original work. The engine's architecture — shots as data, absolute
 song time, joins declared on the incoming shot, text layers composited before and after grading,
 analysis-driven key functions — was studied in the same upstream project without copying its code.
-`src/player/ui.js`, `src/player/config.js`, `src/player/subs.js` and `src/subs/*` are still in that
+`src/player/subs.js` and `src/subs/*` are still in that
 category; where they are ported later they will get entries here first.
 A read-only checkout for reference may be placed at `third_party/world-execute-web/`; it is not
 committed and is not part of this work's source.

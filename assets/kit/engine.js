@@ -183,6 +183,9 @@ export class Engine {
     this._ovq = [];
 
     const post = b ? lerpPost(a.postGrade ?? {}, b.postGrade ?? {}, p) : { ...POST_DEFAULTS, ...(a.postGrade ?? {}) };
+    // Preview-only: an author may switch a pass off to see the design underneath it. The exporter
+    // never sets it, so a rendered frame always carries the film's own grade.
+    if (this.postOverride) Object.assign(post, this.postOverride);
     const glow = post.bloom > 0.001 ? this.bloom.render(frame.tex, this.W, this.H, post) : (this._clearTarget(this.bloom.t[0]), this.bloom.t[0]);
 
     unbindTextures(gl);

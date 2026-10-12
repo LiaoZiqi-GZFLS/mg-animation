@@ -12,6 +12,8 @@ import { Cam } from './prims.js';
 import * as M from './math.js';
 import { PRESETS, Quality } from './quality.js';
 import { Transport, makeSession, makeStore, startOptions } from './transport.js';
+import { UI } from './ui.js';
+import { makeText } from './i18n.js';
 
 const q = new URLSearchParams(location.search);
 const RENDER = q.has('render');
@@ -127,30 +129,33 @@ export async function boot() {
       cost = null; // never calibrated: the controller learns from the frames it draws
     }
     const quality = new Quality({ cost, design, preset: store.get('q', 'auto'), fps: store.get('fps', 'auto') });
-    const transport = new Transport({ canvas, engine, quality, store, session: makeSession(`mg.${def.id ?? 'film'}`) });
-    Object.assign(MG, { transport, quality, playing: false });
+    const ui = q.has('hideUI') ? null : new UI({ engine, timeline, t: makeText(config.preview), design, store });
+    const transport = new Transport({ canvas, engine, quality, ui, store, session: makeSession(`mg.${def.id ?? 'film'}`) });
+    ui?.attach(transport);
+    Object.assign(MG, { transport, quality, ui, playing: false });
     const start = startOptions(q, { saved: { q: store.get('q', 'auto'), fps: store.get('fps', 'auto') }, presets: PRESETS });
     quality.setPreset(start.preset);
     quality.setFps(start.fps);
     await transport.prepare({ audioUrl, onProgress: (s, p) => status(null, `${s} ${Math.round(p * 100)}%`) });
     transport.seek(Number.isFinite(+q.get('t')) ? +q.get('t') : start.t);
     if (q.get('autoplay') === '1') transport.play();
-    addEventListener('keydown', (e) => {
-      const t = transport.t;
-      if (e.code === 'Space') {
-        e.preventDefault();
-        transport.toggle();
-      } else if (e.code === 'ArrowRight') transport.seek(t + (e.shiftKey ? 5 : 1));
-      else if (e.code === 'ArrowLeft') transport.seek(t - (e.shiftKey ? 5 : 1));
-      else if (e.key === ']' || e.key === '[') {
-        const dir = e.key === ']' ? 1 : -1;
-        const i = timeline.shots.indexOf(timeline.shotAt(t)) + dir;
-        const s = timeline.shots[Math.max(0, Math.min(timeline.shots.length - 1, i))];
-        transport.seek(s.start + 0.02);
-      } else if (e.key === ',') transport.seek(t - 1 / MG.fps);
-      else if (e.key === '.') transport.seek(t + 1 / MG.fps);
-      status(transport.t);
-    });
+    if (!ui) {
+      // A bar-less preview keeps the keyboard contract the reference player has.
+      addEventListener('keydown', (e) => {
+        const t = transport.t;
+        if (e.code === 'Space') {
+          e.preventDefault();
+          transport.toggle();
+        } else if (e.code === 'ArrowRight') transport.seek(t + (e.shiftKey ? 5 : 1));
+        else if (e.code === 'ArrowLeft') transport.seek(t - (e.shiftKey ? 5 : 1));
+        else if (e.key === ']' || e.key === '[') {
+          const dir = e.key === ']' ? 1 : -1;
+          const i = timeline.shots.indexOf(timeline.shotAt(t)) + dir;
+          const s = timeline.shots[Math.max(0, Math.min(timeline.shots.length - 1, i))];
+          transport.seek(s.start + 0.02);
+        }
+      });
+    }
   }
 
   if (RENDER) {

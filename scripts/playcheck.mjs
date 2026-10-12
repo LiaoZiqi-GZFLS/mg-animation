@@ -2,7 +2,7 @@
 // export path? Run it after touching kit/transport.js, kit/clock.js, kit/quality.js or kit/player.js.
 //
 //   node scripts/playcheck.mjs --project <film-dir> [--port 5211]
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startServer } from './serve.mjs';
@@ -109,6 +109,56 @@ try {
     return { locked: h, auto: tr.state().h };
   });
   check('the viewer can lock a height and let go again', locked.locked === 360 && locked.auto > 360, `locked ${locked.locked}p, auto ${locked.auto}p`);
+
+  const bar = await page.evaluate(() => {
+    const shots = window.MG.timeline.shots.length;
+    const joins = window.MG.timeline.shots.slice(1).filter((s) => s.join).length; // the first shot enters from black
+    document.querySelector('.mg-bar').classList.add('on');
+    document.querySelector('.gear').click();
+    document.querySelector('[data-q="540p"]').click();
+    window.MG.transport.seek(30);
+    window.MG.transport.draw(30);
+    const locked = window.MG.transport.state().h;
+    const key = Object.keys(localStorage).find((k) => k.endsWith('.player.q'));
+    const stored = key ? localStorage.getItem(key) : null;
+    document.querySelector('[data-q="auto"]').click();
+    return { ticks: document.querySelectorAll('.mg-seek .secs i').length, marks: document.querySelectorAll('.mg-seek .secs u').length, shots, joins, locked, stored };
+  });
+  check('the bar carries the film cut list', bar.ticks === bar.shots && bar.marks === bar.joins, `${bar.ticks} shot ticks, ${bar.marks} join marks over ${bar.shots} shots`);
+  await page.evaluate(() => {
+    window.MG.transport.seek(64.2);
+    document.querySelector('.mg-menu').hidden = true;
+    document.querySelector('.mg-bar').classList.add('on');
+  });
+  await wait(400);
+  const shot = join(project, 'build', 'qc', 'preview-bar.png');
+  writeFileSync(shot, await page.screenshot({ type: 'png' }));
+  console.log(`  wrote ${shot}`);
+  check('a preset clicked in the menu changes what is drawn', bar.locked === 540, `clicked 540p, the canvas is ${bar.locked}p`);
+  check('the choice is kept for the next visit', typeof bar.stored === 'string' && bar.stored.includes('540p'), String(bar.stored));
+
+  const post = await page.evaluate(() => {
+    const e = window.MG.engine;
+    const gl = e.gl;
+    const t = 6.3;
+    const sample = () => {
+      e.draw(t);
+      const px = new Uint8Array(128 * 128 * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.readPixels(Math.floor(e.W / 2) - 64, Math.floor(e.H / 2) - 64, 128, 128, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let s = 0;
+      for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2];
+      return s / (px.length / 4) / 3;
+    };
+    e.postOverride = null;
+    const withBloom = sample();
+    e.postOverride = { bloom: 0 };
+    const without = sample();
+    e.postOverride = null;
+    e.draw(t);
+    return { withBloom, without };
+  });
+  check('a post switch takes the pass off the frame', post.withBloom > post.without * 1.02, `centre mean ${(post.withBloom / 255).toFixed(3)} with bloom, ${(post.without / 255).toFixed(3)} without`);
 
   const sim = await page.evaluate(() => window.MG.transport.simulate({ slow: 30, from: 0, to: 3 }));
   const adapted = sim.fps < 60 || Math.min(...sim.log.map((f) => f[2])) < sim.log[0][2];

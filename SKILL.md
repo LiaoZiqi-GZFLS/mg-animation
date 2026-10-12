@@ -130,11 +130,16 @@ The preview plays on a WebAudio output clock, so a 140 s film cannot drift; fram
 vsync are skipped rather than caught up on, so a stall costs dropped pictures instead of slow motion;
 and an adaptive ladder walks 360p…2160p to hold the frame rate on the machine in front of it. Only the
 render height moves — layout and the whole post chain stay as the export has them, so what you see is
-what you get, only softer. `?q=720p` locks a height, `?fps=30` a frame rate, `?rate=0.25` plays the
-picture silently at quarter speed, `,`/`.` step single frames, and `?render=1` builds none of it.
+what you get, only softer. A bar fades up over the film: play/pause, shot step, 0.25x–2x, a scrubber
+carrying every shot tick and join mark, the `type → audio p=0.42` readout, the height it settled on and
+the measured frame rate; ⚙ opens quality, frame rate and post-chain switches (turn bloom off to see the
+design under it). Keys: space, ←/→ (shift 5 s), `[`/`]` shot, `,`/`.` frame, `q` lock or release the
+height, `h` hide the bar, `f` fullscreen. `?q=720p` starts locked, `?fps=30` locked to 30, `?rate=0.25`
+plays silently at quarter speed, `?hideUI=1` keeps the keyboard and drops the bar, and `?render=1`
+builds none of it.
 
 ```
-node <skill>/scripts/playcheck.mjs --project .      # the player itself, 13 checks
+node <skill>/scripts/playcheck.mjs --project .      # the player itself, 17 checks
 ```
 
 A film whose frames cost a few milliseconds does not need this, and the preview finds its height on its

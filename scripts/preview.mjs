@@ -27,7 +27,8 @@ const { server } = await startServer({
   port,
 });
 console.log(`preview ${url}`);
-console.log('keys: space play/pause · ←/→ 1s (shift 5s) · [ ] shot step · QC stills: node render.mjs --thumb shotId@t');
+console.log('keys: space play/pause · ←/→ 1s (shift 5s) · [ ] shot · , . frame · q lock height · h hide bar · f fullscreen');
+console.log('      QC stills without the bar: node render.mjs --project . --thumb shotId@t');
 if (!argv.includes('--no-browser')) {
   const exes = ['C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'];
   const exe = exes.find((p) => existsSync(p));
