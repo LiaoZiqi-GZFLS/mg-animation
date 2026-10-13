@@ -175,29 +175,45 @@ ones, and can trade 60 fps for two rungs of resolution where a shot cannot hold 
 ```
 node <skill>/scripts/render.mjs --project . --fps 30 --height 1620 --jobs 2 --crf 16
 ```
-`--height 1620` renders 2880×1620 and Lanczos-downscales to 1920×1080 — visibly cleaner glow and
-line edges for ~2× the time. Each export page pre-warms (compiles every shader, builds every point
-table) so frame one costs what frame two costs; `--no-prewarm` skips it. Budget ~0.35 s/frame/page
-at 1080p-class content on a desktop GPU (14 s of film ≈ 2.5 min with `--jobs 2`). Frames are deleted
-after encoding unless `--keep`; `--shot id` re-renders one shot; `--from/--to` a range. Then mux the track:
 
-```
-ffmpeg -i build/x_1920x1080_30.mp4 -i track.mp3 -c copy -shortest build/final.mp4
-```
-(or pass `--audio track.mp3` to render.mjs). Report the absolute path, duration, resolution and size.
+Rendering is streaming: each frame is read back as raw RGBA, POSTed to the local server and piped
+straight into ffmpeg — no PNG touches the disk. The export is cut into parts, one part per `--chunk`
+frames (default 300) and one ffmpeg process each, written to `build/parts/part-NNNN.mp4`; the final
+concat joins them and muxes the track in the same pass (`--audio track.mp3`). `--jobs N` renders N
+parts in parallel (whole parts per worker); `--resume` re-renders only what is missing — on the
+streaming path that means a part whose `ffprobe -count_frames` disagrees with the frames it owns
+(under `--png`: a frame not yet on disk), and finished work is kept and reported as "N parts already
+complete". A frame that fails three times abandons its whole part — a half-fed ffmpeg is worthless —
+and the run then refuses to concat and names the incomplete parts, which live in `build/parts/`.
+`--no-encode` is a streaming-path early exit: it stops after the parts are written and prints their
+directory (under `--png` it encodes as usual). Report the absolute path, duration, resolution and
+size.
+
+`--height 1620` renders 2880×1620 and Lanczos-downscales to 1920×1080 — visibly cleaner glow and
+line edges for ~2× the time. Each page pre-warms (compiles every shader, builds every point table) so
+frame one costs what frame two costs; `--no-prewarm` skips it. Budget ~0.7 s/frame at 1080p-class
+content on this machine as measured on the 140 s showcase (4200 frames in 3074 s at defaults;
+`--jobs 4` ran a 300-frame slice at 0.42 s/frame) — the cost is moving each 8.3 MB frame from the
+page to node, not the GPU (~5 ms) or x264 (~20 ms). `--shot id` re-renders one shot; `--from/--to` a
+range; `--keep` keeps the parts after the film is written. `--png` is the debugging fallback: it
+draws each frame, screenshots the canvas to `build/frames/*.png` and only then encodes from those
+PNGs — slower, but the frames stay inspectable (`--recycle N`, default 400, swaps the page every N
+frames there).
 
 **Long exports (more than a few minutes) outlive one browser page.** A headless GPU context that runs
 for thousands of frames eventually wedges: `Runtime.callFunctionOn timed out`, an empty screenshot, a
-dead renderer. So `--recycle N` (default 400) closes and reopens the page every N frames, a failing
-frame is retried up to 3 times on a fresh page, and the run refuses to encode a partial sequence — it
-prints `rendered N/M` from the frames actually on disk and names the missing numbers. Recover with:
+dead renderer. Parts are the unit this survives on: every part renders on its own fresh page, a
+failing frame is retried up to 3 times on a fresh page, and the run refuses to encode a partial
+sequence — it prints `rendered N/M frames into R/P parts` from the parts actually finished and names
+the incomplete ones. Recover with:
 
 ```
-node <skill>/scripts/render.mjs --project . --resume        # renders only the frames not on disk
+node <skill>/scripts/render.mjs --project . --resume        # renders only the parts not finished
 ```
-Never trust a progress line as proof of output: count the PNGs (`ls build/frames | wc -l`) before
-reporting a film as done, and `--height 1080 --jobs 1` is the stable setting for a multi-minute run —
-several 2880×1620 pages is where long exports die first.
+
+Never trust a progress line as proof of output: probe the film itself (`ffprobe -count_frames`) or
+count the parts (`ls build/parts`) before reporting a film as done, and `--height 1080 --jobs 1` is
+the stable setting for a multi-minute run — several 2880×1620 pages is where long exports die first.
 
 ## Hard rules
 
