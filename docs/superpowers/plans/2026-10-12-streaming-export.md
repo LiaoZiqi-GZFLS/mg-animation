@@ -646,8 +646,8 @@ git commit -m "feat(scripts): concat parts, mux the track, and resume at part gr
 两条命令写的是**同一个** mp4 名（都由片名+尺寸+帧率推出），所以第一条跑完必须先改名，否则比的是自己和自己：
 
 ```bash
-S="C:/Users/50354/Documents/Qoder/2026-10-12/c726d2de/mg-showcase"
-cd "C:/Users/50354/.qoder-cn/skills/mg-animation/scripts"
+S="$HOME/mg-showcase"
+cd "$HOME/.qoder-cn/skills/mg-animation/scripts"
 node render.mjs --project "$S" --from 40 --to 41 --height 1080 --png --keep --quiet
 mv "$S/build/mg-showcase_1920x1080_30.mp4" "$S/build/png-path.mp4"
 node render.mjs --project "$S" --from 40 --to 41 --height 1080 --chunk 30 --keep --quiet
