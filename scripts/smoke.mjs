@@ -135,8 +135,10 @@ try {
 
   const streamed = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--fps', '30', '--to', '2', '--chunk', '30', '--height', flag('height', 540)], { encoding: 'utf8' });
   const smp4 = (streamed.stdout || '').match(/(\S+\.mp4)/)?.[1];
-  const sprobe = smp4 && existsSync(smp4) ? spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'default=nw=1:nk=1', smp4], { encoding: 'utf8' }).stdout.trim() : '';
-  check('the streaming path encodes a decodable film', streamed.status === 0 && +sprobe === 60, sprobe ? `${sprobe} frames streamed` : (streamed.stderr || '').slice(0, 160));
+  const sprobe = smp4 && existsSync(smp4) ? spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames:format=duration', '-of', 'default=nw=1', smp4], { encoding: 'utf8' }).stdout.trim() : '';
+  const sfr = sprobe.match(/nb_read_frames=(\d+)/)?.[1];
+  const sdur = sprobe.match(/duration=([\d.]+)/)?.[1];
+  check('the streaming path encodes a decodable film', streamed.status === 0 && sfr === '60' && sdur === '2.000000', sfr ? `${sfr} frames / ${sdur ?? '?'} s streamed` : (streamed.stderr || '').slice(0, 160));
 
   const clip = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--to', '2', '--height', '360', '--fps', '30', '--crf', '24'], { encoding: 'utf8' });
   const mp4 = (clip.stdout || '').match(/(\S+\.mp4)/)?.[1];

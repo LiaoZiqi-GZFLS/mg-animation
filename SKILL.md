@@ -184,7 +184,9 @@ parts in parallel (whole parts per worker); `--resume` re-renders only what is m
 streaming path that means a part whose `ffprobe -count_frames` disagrees with the frames it owns
 (under `--png`: a frame not yet on disk), and finished work is kept and reported as "N parts already
 complete". A frame that fails three times abandons its whole part — a half-fed ffmpeg is worthless —
-and the run then refuses to concat and names the incomplete parts, which live in `build/parts/`.
+and the run then refuses to concat. The failure message names the frame that hit the cap — a part
+abandoned by a 3-strike give-up is exempt from the incomplete-part list — and unfinished parts live
+in `build/parts/`.
 `--no-encode` is a streaming-path early exit: it stops after the parts are written and prints their
 directory (under `--png` it encodes as usual). Report the absolute path, duration, resolution and
 size.
@@ -192,13 +194,14 @@ size.
 `--height 1620` renders 2880×1620 and Lanczos-downscales to 1920×1080 — visibly cleaner glow and
 line edges for ~2× the time. Each page pre-warms (compiles every shader, builds every point table) so
 frame one costs what frame two costs; `--no-prewarm` skips it. Budget ~0.055 s/frame at 1080p-class
-content on this machine as measured on the 140 s showcase (4200 frames in 229.7 s at defaults): the
+content on this machine as measured on the 140 s showcase (4200 frames in 229.7 s at `--height 1080`): the
 page→node Blob POST of each 8.3 MB frame costs ~23 ms (~40 ms for the whole draw→read→POST loop),
 against GPU ~5 ms and x264 ~20 ms. `--shot id` re-renders one shot; `--from/--to` a
 range; `--keep` keeps the parts after the film is written. `--png` is the debugging fallback: it
 draws each frame, screenshots the canvas to `build/frames/*.png` and only then encodes from those
-PNGs — slower, but the frames stay inspectable (`--recycle N`, default 400, swaps the page every N
-frames there).
+PNGs — slower, and the PNGs are deleted once the film is encoded unless you pass `--keep`. (A page
+is already rebuilt once per part, so at the default `--chunk 300` the `--recycle` default of 400 can
+never fire: `--recycle N` only matters when N is below the chunk, i.e. inside a single part.)
 
 **Long exports (more than a few minutes) outlive one browser page.** A headless GPU context that runs
 for thousands of frames eventually wedges: `Runtime.callFunctionOn timed out`, an empty screenshot, a

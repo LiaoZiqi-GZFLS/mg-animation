@@ -235,7 +235,7 @@ async function renderPart(part) {
       if (opts.png && opts.resume && existsSync(frameFile(outDir, i))) { skipped++; continue; }
       const s = Date.now();
       let r = null;
-      for (let attempt = 1; ; attempt++) {
+      for (;;) {
         try {
           r = await grab(i);
           break;
@@ -339,7 +339,7 @@ if (opts['no-encode'] && !opts.png) {
 if (opts.png) {
   const pattern = join(outDir, '%05d.png').replace(/\\/g, '/');
   const down = W !== targetW || H !== targetH;
-  const enc = spawnSync('ffmpeg', ['-y', '-v', 'error', '-framerate', String(fps), '-start_number', String(f0), '-i', pattern, ...(audio ? ['-i', resolve(project, audio), '-map', '0:v', '-map', '1:a'] : ['-map', '0:v']), '-c:v', 'libx264', '-crf', String(opts.crf ?? 16), '-preset', opts.preset ?? 'slow', '-pix_fmt', 'yuv420p', '-vf', down ? `scale=${targetW}:${targetH}:flags=lanczos` : 'null', '-r', String(fps), out], { stdio: 'inherit' });
+  const enc = spawnSync('ffmpeg', ['-y', '-v', 'error', '-framerate', String(fps), '-start_number', String(f0), '-i', pattern, ...(audio ? ['-i', resolve(project, audio), '-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-b:a', '256k'] : ['-map', '0:v']), '-c:v', 'libx264', '-crf', String(opts.crf ?? 16), '-preset', opts.preset ?? 'slow', '-pix_fmt', 'yuv420p', '-vf', down ? `scale=${targetW}:${targetH}:flags=lanczos` : 'null', '-r', String(fps), '-frames:v', String(total), out], { stdio: 'inherit' });
   if (enc.status !== 0) fail(`ffmpeg failed (exit ${enc.status}). Frames are in ${outDir}.`);
   if (!opts.keep) for (let i = f0; i <= f1; i++) rmSync(frameFile(outDir, i), { force: true });
 } else {

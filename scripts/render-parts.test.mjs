@@ -68,6 +68,20 @@ try {
   assert.notEqual(statSync(join(pd, 'part-0002.mp4')).size, 9, 'the corrupt part was re-rendered, not kept');
   assert.equal(statSync(join(pd, 'part-0000.mp4')).mtimeMs, before, 'a good part was left alone');
   ok('--resume re-renders only what is missing or corrupt');
+
+  // The PNG arm must encode exactly the range it was asked for. PNGs left behind by a wider (or
+  // killed) --keep run sit past the range, and image2 will happily read them into a shorter film.
+  const wide = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--to', '1', '--fps', '30', '--height', '270', '--png', '--keep'], { encoding: 'utf8' });
+  assert.equal(wide.status, 0, `png render failed: ${(wide.stderr || wide.stdout).slice(-400)}`);
+  const framesDir = join(proj, 'build', 'frames');
+  assert.ok(existsSync(join(framesDir, '00029.png')), 'the 30-frame png run wrote its frames');
+  writeFileSync(join(framesDir, '00030.png'), readFileSync(join(framesDir, '00000.png'))); // stale, just past the range
+  const narrow = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--to', '0.5', '--fps', '30', '--height', '270', '--png', '--keep'], { encoding: 'utf8' });
+  assert.equal(narrow.status, 0, `narrow png render failed: ${(narrow.stderr || narrow.stdout).slice(-400)}`);
+  const pngFilm = readdirSync(join(proj, 'build')).find((f) => f.endsWith('.mp4'));
+  const pf = spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'default=nw=1:nk=1', join(proj, 'build', pngFilm)], { encoding: 'utf8' });
+  assert.equal(+pf.stdout.trim(), 15, `the png arm encodes exactly its frame range (got ${pf.stdout.trim()} frames: stale PNGs past the range were muxed in)`);
+  ok('the png arm encodes exactly its frame range');
 } finally {
   rmSync(work, { recursive: true, force: true });
 }

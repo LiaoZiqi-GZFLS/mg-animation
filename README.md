@@ -88,7 +88,7 @@ export default {
 | `scripts/preview.mjs` | serve + open a scrubbable live preview |
 | `scripts/render.mjs` | headless frame-by-frame export + ffmpeg encode (supersampling, parallel pages, per-shot and QC modes) |
 | `scripts/doctor.mjs` | environment check |
-| `scripts/smoke.mjs` | 14-check end-to-end test of everything above |
+| `scripts/smoke.mjs` | 19-check end-to-end test of everything above |
 | `SKILL.md`, `references/` | the authoring workflow, craft numbers, shot recipes, full API |
 
 Used as a [Qoder](https://qoder.com) CLI skill, drop this folder into `~/.qoder-cn/skills/` and
@@ -96,12 +96,13 @@ invoke it with `/mg-animation`. It works standalone without Qoder too — the sc
 
 ## Verified
 
-`node scripts/smoke.mjs` → 14/14: analysis self-test, scaffold, boot on a real 120 BPM track, beat
+`node scripts/smoke.mjs` → 19/19: analysis self-test, scaffold, boot on a real 120 BPM track, beat
 keys landing on measured onsets, every sampled frame a real picture, joins firing on the incoming
-shot, clean export sweep, PNG QC stills, MP4 encode at the right aspect and frame count.
+shot, translated captions, clean export sweep, PNG QC stills, a streamed MP4 that decodes with the
+expected frame count and duration, MP4 encode at the right aspect and frame count.
 
-Throughput on an RTX 5070 Ti: ~0.35 s/frame at 2880×1620 supersampled with particles and bloom,
-2 parallel pages — a 14 s film in about 2.5 minutes.
+Throughput on an RTX 5070 Ti: ~0.055 s/frame at 1080p — the 140 s, 4200-frame showcase streams
+frame by frame into ffmpeg in 229.7 s (the old PNG path took 2351 s on the same film).
 
 ## Attribution and licence
 
