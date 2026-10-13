@@ -345,7 +345,7 @@ if (opts.png) {
 } else {
   const list = join(partsDir, 'list.txt');
   writeFileSync(list, parts.map((p) => `file '${p.path.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n') + '\n');
-  const cat = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list, ...(audio ? ['-i', resolve(project, audio), '-map', '0:v:0', '-map', '1:a:0', '-c:a', 'aac', '-b:a', '256k'] : []), '-c:v', 'copy', '-movflags', '+faststart', '-shortest', out], { stdio: 'inherit' });
+  const cat = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list, ...(audio ? ['-i', resolve(project, audio), '-map', '0:v:0', '-map', '1:a:0', '-c:a', 'aac', '-b:a', '256k'] : []), '-c:v', 'copy', '-movflags', '+faststart', out], { stdio: 'inherit' });
   if (cat.status !== 0) fail(`concat failed (exit ${cat.status}). Parts are in ${partsDir}.`);
   if (!opts.keep) rmSync(partsDir, { recursive: true, force: true });
 }

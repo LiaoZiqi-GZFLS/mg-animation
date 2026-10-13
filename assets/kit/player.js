@@ -89,7 +89,7 @@ export async function boot() {
       if (!MG._px || MG._px.length !== want) MG._px = new Uint8Array(want);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.readPixels(0, 0, engine.W, engine.H, gl.RGBA, gl.UNSIGNED_BYTE, MG._px);
-      const res = await fetch(`/frame/${i}`, { method: 'POST', body: MG._px });
+      const res = await fetch(`/frame/${i}`, { method: 'POST', body: new Blob([MG._px]) });
       if (!res.ok) throw new Error(`frame sink ${res.status}`);
       return r;
     },

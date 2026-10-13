@@ -191,10 +191,10 @@ size.
 
 `--height 1620` renders 2880×1620 and Lanczos-downscales to 1920×1080 — visibly cleaner glow and
 line edges for ~2× the time. Each page pre-warms (compiles every shader, builds every point table) so
-frame one costs what frame two costs; `--no-prewarm` skips it. Budget ~0.7 s/frame at 1080p-class
-content on this machine as measured on the 140 s showcase (4200 frames in 3074 s at defaults;
-`--jobs 4` ran a 300-frame slice at 0.42 s/frame) — the cost is moving each 8.3 MB frame from the
-page to node, not the GPU (~5 ms) or x264 (~20 ms). `--shot id` re-renders one shot; `--from/--to` a
+frame one costs what frame two costs; `--no-prewarm` skips it. Budget ~0.055 s/frame at 1080p-class
+content on this machine as measured on the 140 s showcase (4200 frames in 229.7 s at defaults): the
+page→node Blob POST of each 8.3 MB frame costs ~23 ms (~40 ms for the whole draw→read→POST loop),
+against GPU ~5 ms and x264 ~20 ms. `--shot id` re-renders one shot; `--from/--to` a
 range; `--keep` keeps the parts after the film is written. `--png` is the debugging fallback: it
 draws each frame, screenshots the canvas to `build/frames/*.png` and only then encodes from those
 PNGs — slower, but the frames stay inspectable (`--recycle N`, default 400, swaps the page every N
