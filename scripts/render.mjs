@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { startServer } from './serve.mjs';
+import { encodePart, partPath, partFrames } from './part.mjs';
 
 const SKILL = dirname(fileURLToPath(import.meta.url));
 const BROWSERS = [
@@ -42,6 +43,7 @@ const opts = arg({
   project: 'str', out: 'str', fps: 'num', from: 'num', to: 'num', height: 'num', width: 'num',
   supersample: 'num', crf: 'num', preset: 'str', jobs: 'num', audio: 'str', shot: 'str', thumb: 'str',
   exportWidth: 'num', resume: 'bool', recycle: 'num', 'no-prewarm': 'bool', 'no-encode': 'bool', keep: 'bool', quiet: 'bool', 'gpu-null': 'bool',
+  chunk: 'num', png: 'bool',
 });
 
 const project = resolve(opts.project ?? '.');
@@ -71,7 +73,19 @@ const puppeteer = await loadPuppeteer();
 const exe = BROWSERS.find((p) => existsSync(p));
 if (!exe) fail('no Edge/Chrome found. Install Edge/Chrome or pass a browser path via MG_BROWSER env.');
 
-const server = await startServer({ dir: project, kitFallback: existsSync(join(project, 'kit')) ? null : join(SKILL, '..', 'assets', 'kit') });
+const active = new Map(); // part.n -> its ffmpeg stdin
+const sink = async (i, req) => {
+  const part = Math.floor((i - f0) / chunk);
+  const stdin = active.get(part);
+  if (!stdin) throw new Error(`no open part for frame ${i}`);
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const buf = Buffer.concat(chunks);
+  const want = W * H * 4;
+  if (buf.length !== want) throw new Error(`frame ${i} arrived as ${buf.length} bytes, expected ${want}`);
+  if (!stdin.write(buf)) await new Promise((res) => stdin.once('drain', res)); // backpressure into the page
+};
+const server = await startServer({ dir: project, kitFallback: existsSync(join(project, 'kit')) ? null : join(SKILL, '..', 'assets', 'kit'), port: 0, onFrame: opts.png ? null : sink });
 const base = `${server.url}?render=1&hideUI=1&autoboot=on`;
 
 const probe = await puppeteer.launch({
@@ -153,86 +167,112 @@ if (opts.shot) {
 const [f0, f1] = ranges[0];
 const total = Math.max(1, f1 - f0 + 1);
 const jobs = Math.max(1, Math.min(+(opts.jobs ?? 1), total));
+const chunk = Math.max(1, +(opts.chunk ?? 300));
+const partsDir = join(project, 'build', 'parts');
+const parts = Array.from({ length: Math.ceil(total / chunk) }, (_, n) => {
+  const [first, last] = partFrames(n, f0, chunk, total);
+  return { n, first, last, path: partPath(partsDir, n) };
+});
+const rendered = new Set();
+if (!opts.png) mkdirSync(partsDir, { recursive: true });
 const outDir = resolve(opts.out ?? join(project, 'build', 'frames'));
-mkdirSync(outDir, { recursive: true });
+if (opts.png) mkdirSync(outDir, { recursive: true }); // the streaming path must not create build/frames
 if (!opts.quiet) {
   console.log(`film ${basename(project)} · ${total} frames ${f0}..${f1} @ ${fps}fps · render ${W}x${H} -> export ${targetW}x${targetH}`);
   if (info0.problems?.length) console.log(`timeline notes:\n  ${info0.problems.join('\n  ')}`);
 }
 
 const frameFile = (outDir, i) => join(outDir, `${String(i).padStart(5, '0')}.png`);
-const chunks = Array.from({ length: jobs }, (_, i) => [f0 + Math.floor((total * i) / jobs), f0 + Math.floor((total * (i + 1)) / jobs) - 1]);
 const t0 = Date.now();
-let done = 0, skipped = 0, failed = [];
-let slowest = 0;
-const recycle = Math.max(0, +(opts.recycle ?? 400));
+let done = 0, skipped = 0, failed = [], slowest = 0;
 
-async function runChunk([a, b]) {
-  if (b < a) return;
-  let { page, errs } = await newPage(W, H);
-  let el = await page.$('#screen');
-  let since = 0;
-  // A long export can lose its GPU context or a frame can wedge the renderer; never let one bad
-  // frame end the run. Retry it on a fresh page, and recycle the page on a schedule regardless.
-  for (let i = a; i <= b; i++) {
-    if (opts.resume && existsSync(frameFile(outDir, i))) {
+async function renderPart(part) {
+  const frames = part.last - part.first + 1;
+  const { stdin, done: encoded } = encodePart({ path: part.path, W, H, targetW, targetH, fps, frames, crf: +(opts.crf ?? 16), preset: opts.preset ?? 'slow' });
+  active.set(part.n, stdin);
+  stdin.on('error', () => {}); // a dead ffmpeg must surface through `encoded`, not crash node
+  const { page, errs } = await newPage(W, H);
+  try {
+    for (let i = part.first; i <= part.last; i++) {
+      const s = Date.now();
+      let r = null;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          r = await page.evaluate((i, fps) => window.MG.frameRaw(i, fps), i, fps);
+          break;
+        } catch (err) {
+          if (attempt >= 3) {
+            console.error(`\n  frame ${i} failed 3 times: ${String(err.message ?? err).slice(0, 120)}`);
+            failed.push(i);
+            break;
+          }
+          console.error(`\n  frame ${i} attempt ${attempt}: ${String(err.message ?? err).slice(0, 120)}, reopening the part`);
+          await page.close().catch(() => {});
+          active.delete(part.n);
+          stdin.destroy();
+          await encoded.catch(() => {});
+          done -= i - part.first; // this part re-renders from scratch; un-count the frames it thought it had
+          return renderPart(part); // a whole part again: a half-fed ffmpeg is worthless
+        }
+      }
+      slowest = Math.max(slowest, Date.now() - s);
+      done++;
+      if (r?.errors > 0 && done % 60 === 0) process.stdout.write(`\n  ! ${info0.errors.at(-1)}\n`);
+      if (!opts.quiet && done % 30 === 0) {
+        const rate = done / Math.max((Date.now() - t0) / 1000, 1e-9);
+        process.stdout.write(`  ${done}/${total} frames  ${(1000 / Math.max(rate, 0.01)).toFixed(0)} ms/frame  eta ${((total - done) / rate).toFixed(0)}s\r`);
+      }
+    }
+    await page.close().catch(() => {});
+  } catch (err) {
+    await page.close().catch(() => {});
+    throw err;
+  }
+  active.delete(part.n);
+  stdin.end();
+  await encoded;
+  if (errs.length) console.error(`\n  part ${part.n} page errors (${errs.length}): ${errs.slice(0, 3).join(' | ')}`);
+  rendered.add(part.n);
+}
+
+const complete = () => false; // Task 4: a part is reusable only if it decodes to its own frame count
+
+// Workers take whole parts, so ordering is structural: no shared cursor, no re-sorting.
+const worker = (id) => parts.filter((_, i) => i % jobs === id).map((p) => p.n);
+const queue = [...parts];
+async function runWorker(id) {
+  const mine = new Set(worker(id));
+  for (const part of queue) {
+    if (!mine.has(part.n)) continue;
+    if (opts.resume && complete(part)) {
+      rendered.add(part.n);
       skipped++;
       continue;
     }
-    const s = Date.now();
-    let r = null;
-    for (let attempt = 1; ; attempt++) {
-      try {
-        r = await page.evaluate((i, fps) => window.MG.frameAt(i, fps), i, fps);
-        const png = await el.screenshot({ type: 'png' });
-        if (!png?.length) throw new Error('empty screenshot');
-        writeFileSync(frameFile(outDir, i), png);
-        break;
-      } catch (err) {
-        const last = attempt >= 3;
-        console.error(`\n  frame ${i} attempt ${attempt}: ${String(err.message ?? err).slice(0, 120)}${last ? ' -> giving up' : ', reopening page'}`);
-        if (last) { failed.push(i); break; }
-        try { await page.close(); } catch {}
-        ({ page, errs } = await newPage(W, H));
-        el = await page.$('#screen');
-        since = 0;
-      }
-    }
-    since++;
-    const ms = Date.now() - s;
-    slowest = Math.max(slowest, ms);
-    done++;
-    if (!opts.quiet && (done % 15 === 0 || done === total)) {
-      const rate = done / Math.max((Date.now() - t0) / 1000, 1e-9);
-      process.stdout.write(`  ${done}/${total} frames  ${(1000 / Math.max(rate, 0.01)).toFixed(0)} ms/frame  eta ${((total - done) / rate).toFixed(0)}s\r`);
-    }
-    if (r?.errors > 0 && !opts.quiet && done % 60 === 0) process.stdout.write(`\n  ! ${info0.errors.at(-1)}\n`);
-    if (recycle > 0 && since >= recycle && i < b) {
-      await page.close().catch(() => {});
-      ({ page, errs } = await newPage(W, H));
-      el = await page.$('#screen');
-      since = 0;
-    }
+    await renderPart(part);
   }
-  if (errs.length) console.error(`\n  page errors (${errs.length}): ${errs.slice(0, 3).join(' | ')}`);
-  await page.close().catch(() => {});
 }
 
-process.on('unhandledRejection', (err) => console.error(`
-  [page] ${String(err?.message ?? err).slice(0, 120)}`));
-await Promise.all(chunks.map((c) => runChunk(c).catch((err) => console.error(`
-  shard ${c} aborted: ${String(err.message ?? err).slice(0, 120)}`))));
+process.on('unhandledRejection', (err) => console.error(`\n  [page] ${String(err?.message ?? err).slice(0, 120)}`));
+await Promise.all(Array.from({ length: jobs }, (_, id) => runWorker(id).catch((err) => console.error(`\n  worker ${id} aborted: ${String(err.message ?? err).slice(0, 160)}`))));
 const secs = (Date.now() - t0) / 1000;
 if (!opts.quiet) {
-  process.stdout.write(`\n  rendered ${done - failed.length}/${total} frames in ${secs.toFixed(1)}s (${(done / secs).toFixed(1)} fps, slowest ${slowest} ms/frame)`);
-  process.stdout.write(skipped ? `  (${skipped} already on disk, kept)\n` : '\n');
+  process.stdout.write(`\n  rendered ${done}/${total} frames into ${rendered.size}/${parts.length} parts in ${secs.toFixed(1)}s (${(done / secs).toFixed(1)} fps, slowest ${slowest} ms/frame)`);
+  process.stdout.write(skipped ? `  (${skipped} parts already complete, kept)\n` : '\n');
+}
+const missingParts = parts.filter((p) => !rendered.has(p.n) && !failed.some((i) => i >= p.first && i <= p.last));
+if (failed.length || missingParts.length) {
+  fail(`${failed.length} frames failed${missingParts.length ? ` and ${missingParts.length} parts are incomplete (${missingParts.slice(0, 12).map((p) => p.n).join(', ')})` : ''}. Re-run with --resume; parts are in ${partsDir}.`);
 }
 
-const missing = [];
-for (let i = f0; i <= f1; i++) if (!existsSync(frameFile(outDir, i))) missing.push(i);
-if (missing.length) {
-  const show = missing.slice(0, 12).join(', ') + (missing.length > 12 ? `, ... (${missing.length} total)` : '');
-  fail(`${missing.length} of ${total} frames are missing (${show}). Re-run with --resume to fill only the gaps; frames are in ${outDir}.`);
+if (!opts.png) {
+  // Task 4 replaces this stub with the concat + audio step; until then the parts are the mp4s this
+  // run produced, so name them (stdout callers match on the written .mp4 path).
+  await probe.close();
+  server.server.close();
+  console.log(`parts: ${partsDir}`);
+  for (const p of parts) console.log(`  ${p.path}`);
+  process.exit(0);
 }
 
 if (opts['no-encode']) {
