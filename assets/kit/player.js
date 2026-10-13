@@ -80,6 +80,19 @@ export async function boot() {
       const r = engine.draw(t);
       return { i, t: +t.toFixed(5), ...r, errors: engine.errors.length };
     },
+    /** Export entry point that also ships the frame: draw i, read it back, POST it to the sink.
+     *  Awaiting the POST is the backpressure — the page cannot run ahead of the encoder. */
+    async frameRaw(i, fps = MG.fps) {
+      const r = MG.frameAt(i, fps);
+      const gl = engine.gl;
+      const want = engine.W * engine.H * 4;
+      if (!MG._px || MG._px.length !== want) MG._px = new Uint8Array(want);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.readPixels(0, 0, engine.W, engine.H, gl.RGBA, gl.UNSIGNED_BYTE, MG._px);
+      const res = await fetch(`/frame/${i}`, { method: 'POST', body: MG._px });
+      if (!res.ok) throw new Error(`frame sink ${res.status}`);
+      return r;
+    },
     seek(t) {
       const e = Math.max(0, Math.min(engine.duration, t));
       if (MG.transport) MG.transport.seek(e);

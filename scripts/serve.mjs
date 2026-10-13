@@ -21,12 +21,23 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-export function startServer({ dir, kitFallback = null, port = 0 }) {
+export function startServer({ dir, kitFallback = null, port = 0, onFrame = null }) {
   const root = resolve(dir);
   const kitRoot = kitFallback ? resolve(kitFallback) : null;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     let rel = decodeURIComponent(url.pathname);
+    if (onFrame && req.method === 'POST' && rel.startsWith('/frame/')) {
+      const i = Number(rel.slice('/frame/'.length));
+      if (!Number.isInteger(i) || i < 0) {
+        res.writeHead(400).end('bad frame index');
+        return;
+      }
+      Promise.resolve(onFrame(i, req))
+        .then(() => res.writeHead(204).end())
+        .catch((e) => res.writeHead(500, { 'content-type': 'text/plain' }).end(String(e?.message ?? e)));
+      return;
+    }
     if (rel === '/favicon.ico') {
       res.writeHead(204).end();
       return;
