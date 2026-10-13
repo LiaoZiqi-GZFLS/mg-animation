@@ -73,6 +73,24 @@ const puppeteer = await loadPuppeteer();
 const exe = BROWSERS.find((p) => existsSync(p));
 if (!exe) fail('no Edge/Chrome found. Install Edge/Chrome or pass a browser path via MG_BROWSER env.');
 
+// A drain that never arrives (dead ffmpeg, wedged pipe) must not hold the page's POST until
+// puppeteer's 240 s protocol timeout: race the backpressure wait against the stream's death.
+function waitDrain(stdin) {
+  return new Promise((ok, no) => {
+    const settle = (err) => {
+      stdin.off('drain', onDrain);
+      stdin.off('error', onGone);
+      stdin.off('close', onGone);
+      err ? no(err) : ok();
+    };
+    const onDrain = () => settle(null);
+    const onGone = (err) => settle(err instanceof Error ? err : new Error('part encoder is gone'));
+    stdin.once('drain', onDrain);
+    stdin.once('error', onGone);
+    stdin.once('close', onGone);
+  });
+}
+
 const active = new Map(); // part.n -> its ffmpeg stdin
 const sink = async (i, req) => {
   const part = Math.floor((i - f0) / chunk);
@@ -83,7 +101,8 @@ const sink = async (i, req) => {
   const buf = Buffer.concat(chunks);
   const want = W * H * 4;
   if (buf.length !== want) throw new Error(`frame ${i} arrived as ${buf.length} bytes, expected ${want}`);
-  if (!stdin.write(buf)) await new Promise((res) => stdin.once('drain', res)); // backpressure into the page
+  if (stdin.destroyed) throw new Error('part encoder is gone'); // fail the frame now; the retry path restarts the part
+  if (!stdin.write(buf)) await waitDrain(stdin); // backpressure into the page
 };
 const server = await startServer({ dir: project, kitFallback: existsSync(join(project, 'kit')) ? null : join(SKILL, '..', 'assets', 'kit'), port: 0, onFrame: opts.png ? null : sink });
 const base = `${server.url}?render=1&hideUI=1&autoboot=on`;
@@ -185,6 +204,7 @@ if (!opts.quiet) {
 const frameFile = (outDir, i) => join(outDir, `${String(i).padStart(5, '0')}.png`);
 const t0 = Date.now();
 let done = 0, skipped = 0, failed = [], slowest = 0;
+const frameTries = new Map(); // frame -> tries so far: the 3-strike cap must outlive a part restart
 
 async function renderPart(part) {
   const frames = part.last - part.first + 1;
@@ -201,12 +221,20 @@ async function renderPart(part) {
           r = await page.evaluate((i, fps) => window.MG.frameRaw(i, fps), i, fps);
           break;
         } catch (err) {
-          if (attempt >= 3) {
-            console.error(`\n  frame ${i} failed 3 times: ${String(err.message ?? err).slice(0, 120)}`);
+          const n = (frameTries.get(i) ?? 0) + 1;
+          frameTries.set(i, n);
+          if (n >= 3) {
+            console.error(`\n  frame ${i} failed ${n} times: ${String(err.message ?? err).slice(0, 120)}`);
             failed.push(i);
-            break;
+            // Give up on the whole part: a half-fed ffmpeg is worthless. Without rendered.add it
+            // stays incomplete, and the failed frame exempts it from missingParts below.
+            await page.close().catch(() => {});
+            active.delete(part.n);
+            stdin.destroy();
+            await encoded.catch(() => {});
+            return;
           }
-          console.error(`\n  frame ${i} attempt ${attempt}: ${String(err.message ?? err).slice(0, 120)}, reopening the part`);
+          console.error(`\n  frame ${i} attempt ${n}: ${String(err.message ?? err).slice(0, 120)}, reopening the part`);
           await page.close().catch(() => {});
           active.delete(part.n);
           stdin.destroy();
@@ -217,7 +245,7 @@ async function renderPart(part) {
       }
       slowest = Math.max(slowest, Date.now() - s);
       done++;
-      if (r?.errors > 0 && done % 60 === 0) process.stdout.write(`\n  ! ${info0.errors.at(-1)}\n`);
+      if (!opts.quiet && r?.errors > 0 && done % 60 === 0) process.stdout.write(`\n  ! ${info0.errors.at(-1)}\n`);
       if (!opts.quiet && done % 30 === 0) {
         const rate = done / Math.max((Date.now() - t0) / 1000, 1e-9);
         process.stdout.write(`  ${done}/${total} frames  ${(1000 / Math.max(rate, 0.01)).toFixed(0)} ms/frame  eta ${((total - done) / rate).toFixed(0)}s\r`);
