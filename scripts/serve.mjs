@@ -28,12 +28,13 @@ export function startServer({ dir, kitFallback = null, port = 0, onFrame = null 
     const url = new URL(req.url, 'http://localhost');
     let rel = decodeURIComponent(url.pathname);
     if (onFrame && req.method === 'POST' && rel.startsWith('/frame/')) {
-      const i = Number(rel.slice('/frame/'.length));
-      if (!Number.isInteger(i) || i < 0) {
+      const raw = rel.slice('/frame/'.length);
+      if (!/^\d+$/.test(raw)) {
         res.writeHead(400).end('bad frame index');
         return;
       }
-      Promise.resolve(onFrame(i, req))
+      const i = Number(raw);
+      Promise.resolve().then(() => onFrame(i, req))
         .then(() => res.writeHead(204).end())
         .catch((e) => res.writeHead(500, { 'content-type': 'text/plain' }).end(String(e?.message ?? e)));
       return;
@@ -46,7 +47,7 @@ export function startServer({ dir, kitFallback = null, port = 0, onFrame = null 
     rel = normalize(rel).replace(/^([.][.][/\\])+/, '');
     let file = join(root, rel);
     const inRoot = file.startsWith(root + sep) || file === root;
-    if (!inRoot && kitRoot) {
+    if (kitRoot && (!inRoot || !existsSync(file))) {
       file = join(kitRoot, rel.replace(/^[/\\]kit[/\\]/, ''));
     }
     if (!file.startsWith(root + sep) && !(kitRoot && file.startsWith(kitRoot + sep))) {

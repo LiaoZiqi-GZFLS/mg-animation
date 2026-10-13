@@ -41,7 +41,7 @@ try {
   check('analyse synthetic 120 BPM track', an?.status === 0 && existsSync(join(proj, 'analysis', 'out', 'features.f32')), an?.stdout?.match(/tempo\s+([\d.]+) bpm/)?.[1] + ' bpm');
 
   const puppeteer = (await import(pathToFileURL(join(HERE, '..', 'node_modules', 'puppeteer-core', 'lib', 'puppeteer', 'puppeteer-core.js')).href)).default;
-  const exe = ['C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'].find((p) => existsSync(p));
+  const exe = process.env.MG_BROWSER ?? ['C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'].find((p) => existsSync(p));
   if (!exe) throw new Error('no Edge/Chrome');
   browser = await puppeteer.launch({
     executablePath: exe,

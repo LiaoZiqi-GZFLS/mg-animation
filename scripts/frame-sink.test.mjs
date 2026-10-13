@@ -10,6 +10,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SKILL = resolve(HERE, '..');
 const project = process.argv[2] ?? resolve(SKILL, 'assets/template');
 const got = new Map();
+// The sink holds frame 8's POST open, so the test can prove the page is still waiting on it.
+let release8;
+const held = new Promise((res) => (release8 = res));
 const { server, url } = await startServer({
   dir: project,
   kitFallback: existsSync(join(project, 'kit')) ? null : join(SKILL, 'assets', 'kit'),
@@ -20,21 +23,22 @@ const { server, url } = await startServer({
       req.on('data', (c) => chunks.push(c));
       req.on('end', () => {
         got.set(i, Buffer.concat(chunks));
-        ok();
+        ok(i === 8 ? held : Promise.resolve());
       });
       req.on('error', no);
     }),
 });
 const puppeteer = (await import(pathToFileURL(join(SKILL, 'node_modules', 'puppeteer-core', 'lib', 'puppeteer', 'puppeteer-core.js')).href)).default;
 const exe = ['C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'].find((p) => existsSync(p));
-const browser = await puppeteer.launch({
-  executablePath: process.env.MG_BROWSER ?? exe,
-  headless: 'new',
-  args: ['--no-sandbox', '--disable-gpu-sandbox', '--use-gl=angle', '--use-angle=d3d11', '--force-device-scale-factor=1', '--hide-scrollbars'],
-});
 let n = 0;
 const ok = (what) => console.log(`  ok ${++n}  ${what}`);
+let browser = null;
 try {
+  browser = await puppeteer.launch({
+    executablePath: process.env.MG_BROWSER ?? exe,
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-gpu-sandbox', '--use-gl=angle', '--use-angle=d3d11', '--force-device-scale-factor=1', '--hide-scrollbars'],
+  });
   const page = await browser.newPage();
   await page.setViewport({ width: 640, height: 360, deviceScaleFactor: 1 });
   await page.goto(`${url}?render=1`, { waitUntil: 'load' });
@@ -46,21 +50,18 @@ try {
   assert.equal(got.get(7).length, 640 * 360 * 4, 'a raw frame arrives at full RGBA size, not encoded');
   assert.ok(got.get(7).some((b) => b !== 0), 'readPixels actually read something');
   ok('MG.frameRaw draws one frame and ships it as raw RGBA');
-  // The POST is awaited: a sink that never finishes must hold the page.
-  let release;
-  const gate = new Promise((res) => (release = res));
-  await Promise.all([
-    page.evaluate(() => window.MG.frameRaw(8, 30)),
-    (async () => {
-      for (let i = 0; i < 200 && !got.has(8); i++) await new Promise((res) => setTimeout(res, 5));
-      assert.ok(got.has(8), 'the second frame arrived too');
-      release();
-    })(),
-  ]);
-  await gate;
+  // The POST is awaited: while the sink holds frame 8 open, frameRaw must not resolve.
+  const p8 = page.evaluate(() => window.MG.frameRaw(8, 30));
+  for (let i = 0; i < 200 && !got.has(8); i++) await new Promise((res) => setTimeout(res, 5));
+  assert.ok(got.has(8), 'the second frame arrived too');
+  await new Promise((res) => setTimeout(res, 300));
+  const state = await Promise.race([p8.then(() => 'done'), new Promise((r) => setTimeout(() => r('pending'), 60))]);
+  assert.equal(state, 'pending', 'frame 8 is still held open by the sink, so frameRaw cannot have resolved');
+  release8();
+  await p8;
   ok('the page waits for the sink, which is the backpressure');
 } finally {
-  await browser.close();
+  if (browser) await browser.close().catch(() => {});
   server.close();
 }
 console.log(`\nframe-sink: ${n} checks passed`);
