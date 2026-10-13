@@ -133,6 +133,11 @@ try {
   const file = (thumb.stdout || '').match(/(\S+\.png)/)?.[1];
   check('render.mjs --thumb writes a PNG', thumb.status === 0 && file && existsSync(file) && statSync(file).size > 20000, file ? `${Math.round(statSync(file).size / 1024)} KB` : thumb.stderr?.slice(0, 100));
 
+  const streamed = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--fps', '30', '--to', '2', '--chunk', '30', '--height', flag('height', 540)], { encoding: 'utf8' });
+  const smp4 = (streamed.stdout || '').match(/(\S+\.mp4)/)?.[1];
+  const sprobe = smp4 && existsSync(smp4) ? spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'default=nw=1:nk=1', smp4], { encoding: 'utf8' }).stdout.trim() : '';
+  check('the streaming path encodes a decodable film', streamed.status === 0 && +sprobe === 60, sprobe ? `${sprobe} frames streamed` : (streamed.stderr || '').slice(0, 160));
+
   const clip = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--to', '2', '--height', '360', '--fps', '30', '--crf', '24'], { encoding: 'utf8' });
   const mp4 = (clip.stdout || '').match(/(\S+\.mp4)/)?.[1];
   check('render.mjs encodes an MP4', clip.status === 0 && mp4 && existsSync(mp4) && statSync(mp4).size > 50000, mp4 ? `${Math.round(statSync(mp4).size / 1024)} KB` : clip.stderr?.slice(0, 120));

@@ -1,7 +1,7 @@
 // A streaming render must produce whole parts, in order, without touching the PNG path.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,7 +12,7 @@ const work = mkdtempSync(join(resolve(HERE, '..'), 'build-test-'));
 const proj = join(work, 'film');
 try {
   spawnSync(process.execPath, [join(HERE, 'new-project.mjs'), proj], { encoding: 'utf8' });
-  const r = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--to', '1', '--fps', '30', '--chunk', '10', '--height', '270'], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--to', '1', '--fps', '30', '--chunk', '10', '--height', '270', '--keep'], { encoding: 'utf8' });
   assert.equal(r.status, 0, `render failed: ${(r.stderr || r.stdout).slice(-500)}`);
   const parts = readdirSync(join(proj, 'build', 'parts')).filter((f) => /^part-\d+\.mp4$/.test(f));
   assert.deepEqual(parts, ['part-0000.mp4', 'part-0001.mp4', 'part-0002.mp4'], `30 frames at chunk 10 (got ${parts})`);
@@ -38,8 +38,36 @@ try {
   writeFileSync(idx, readFileSync(idx, 'utf8').replace('</body>', inject), 'utf8');
   const rf = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', failing, '--to', '1', '--fps', '30', '--chunk', '10', '--height', '270'], { encoding: 'utf8', timeout: 180000 });
   assert.equal(rf.status, 1, `a persistent frame failure must end the run: status ${rf.status}\n${(rf.stdout + rf.stderr).slice(-500)}`);
-  assert.match(rf.stdout + rf.stderr, /frames failed/);
+  assert.match(rf.stdout + rf.stderr, /1 frames failed/);
   ok('a persistent frame failure ends the run instead of looping forever');
+
+  const final = readdirSync(join(proj, 'build')).find((f) => f.endsWith('.mp4'));
+  assert.ok(final, 'a final mp4 exists');
+  const probe = spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames,width,height', '-show_entries', 'format=duration', '-of', 'default=nw=1', join(proj, 'build', final)], { encoding: 'utf8' });
+  assert.match(probe.stdout, /nb_read_frames=30/, `all 30 frames survived the concat:\n${probe.stdout}`);
+  ok('the parts concat into one complete film');
+
+  // Every part is already complete: a --resume run must render nothing and only rebuild the film.
+  const filmBefore = statSync(join(proj, 'build', final)).mtimeMs;
+  const rb = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--to', '1', '--fps', '30', '--chunk', '10', '--height', '270', '--resume'], { encoding: 'utf8' });
+  assert.equal(rb.status, 0, `concat-only resume failed: ${(rb.stderr || rb.stdout).slice(-400)}`);
+  assert.match(rb.stdout, /3 parts already complete, kept/, 'every complete part was skipped');
+  assert.notEqual(statSync(join(proj, 'build', final)).mtimeMs, filmBefore, 'the film was written again');
+  assert.equal(existsSync(join(proj, 'build', 'parts')), false, 'parts are cleaned up after a successful concat');
+  ok('parts are removed once the film is written');
+
+  // Resume: delete one part's output and re-run; only that part must come back.
+  spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--to', '1', '--fps', '30', '--chunk', '10', '--height', '270', '--keep'], { encoding: 'utf8' });
+  const pd = join(proj, 'build', 'parts');
+  rmSync(join(pd, 'part-0001.mp4'), { force: true });
+  writeFileSync(join(pd, 'part-0002.mp4'), 'not an mp4');
+  const before = statSync(join(pd, 'part-0000.mp4')).mtimeMs;
+  const rr = spawnSync(process.execPath, [join(HERE, 'render.mjs'), '--project', proj, '--to', '1', '--fps', '30', '--chunk', '10', '--height', '270', '--resume', '--keep'], { encoding: 'utf8' });
+  assert.equal(rr.status, 0, `resume failed: ${(rr.stderr || rr.stdout).slice(-400)}`);
+  assert.ok(existsSync(join(pd, 'part-0001.mp4')), 'the missing part was re-rendered');
+  assert.notEqual(statSync(join(pd, 'part-0002.mp4')).size, 9, 'the corrupt part was re-rendered, not kept');
+  assert.equal(statSync(join(pd, 'part-0000.mp4')).mtimeMs, before, 'a good part was left alone');
+  ok('--resume re-renders only what is missing or corrupt');
 } finally {
   rmSync(work, { recursive: true, force: true });
 }

@@ -4,7 +4,7 @@
 //   node render.mjs --project . --fps 30 --to 14.2 --height 1620 --crf 16
 //   node render.mjs --thumb chart@4.1        # single QC frame
 //   node render.mjs --shot world --jobs 3    # one shot, three parallel pages
-import { mkdirSync, writeFileSync, existsSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -205,20 +205,39 @@ const frameFile = (outDir, i) => join(outDir, `${String(i).padStart(5, '0')}.png
 const t0 = Date.now();
 let done = 0, skipped = 0, failed = [], slowest = 0;
 const frameTries = new Map(); // frame -> tries so far: the 3-strike cap must outlive a part restart
+const recycle = Math.max(0, +(opts.recycle ?? 400)); // --png only: the screenshot path reopens its page on schedule
 
 async function renderPart(part) {
   const frames = part.last - part.first + 1;
-  const { stdin, done: encoded } = encodePart({ path: part.path, W, H, targetW, targetH, fps, frames, crf: +(opts.crf ?? 16), preset: opts.preset ?? 'slow' });
-  active.set(part.n, stdin);
-  stdin.on('error', () => {}); // a dead ffmpeg must surface through `encoded`, not crash node
-  const { page, errs } = await newPage(W, H);
+  let stdin = null;
+  let encoded = Promise.resolve();
+  if (!opts.png) {
+    ({ stdin, done: encoded } = encodePart({ path: part.path, W, H, targetW, targetH, fps, frames, crf: +(opts.crf ?? 16), preset: opts.preset ?? 'slow' }));
+    active.set(part.n, stdin);
+    stdin.on('error', () => {}); // a dead ffmpeg must surface through `encoded`, not crash node
+  }
+  let { page, errs } = await newPage(W, H);
+  let since = 0;
+  // --png falls back to the old grab: draw the frame with frameAt, screenshot the canvas to disk.
+  const grab = async (i) => {
+    if (opts.png) {
+      const rr = await page.evaluate((i, fps) => window.MG.frameAt(i, fps), i, fps);
+      const png = await (await page.$('#screen')).screenshot({ type: 'png' });
+      if (!png?.length) throw new Error('empty screenshot');
+      writeFileSync(frameFile(outDir, i), png);
+      return rr;
+    }
+    return page.evaluate((i, fps) => window.MG.frameRaw(i, fps), i, fps);
+  };
   try {
     for (let i = part.first; i <= part.last; i++) {
+      // Parts are not the unit of work on the PNG path: resume means "this PNG is already on disk".
+      if (opts.png && opts.resume && existsSync(frameFile(outDir, i))) { skipped++; continue; }
       const s = Date.now();
       let r = null;
       for (let attempt = 1; ; attempt++) {
         try {
-          r = await page.evaluate((i, fps) => window.MG.frameRaw(i, fps), i, fps);
+          r = await grab(i);
           break;
         } catch (err) {
           const n = (frameTries.get(i) ?? 0) + 1;
@@ -229,20 +248,17 @@ async function renderPart(part) {
             // Give up on the whole part: a half-fed ffmpeg is worthless. Without rendered.add it
             // stays incomplete, and the failed frame exempts it from missingParts below.
             await page.close().catch(() => {});
-            active.delete(part.n);
-            stdin.destroy();
-            await encoded.catch(() => {});
+            if (stdin) { active.delete(part.n); stdin.destroy(); await encoded.catch(() => {}); }
             return;
           }
           console.error(`\n  frame ${i} attempt ${n}: ${String(err.message ?? err).slice(0, 120)}, reopening the part`);
           await page.close().catch(() => {});
-          active.delete(part.n);
-          stdin.destroy();
-          await encoded.catch(() => {});
+          if (stdin) { active.delete(part.n); stdin.destroy(); await encoded.catch(() => {}); }
           done -= i - part.first; // this part re-renders from scratch; un-count the frames it thought it had
           return renderPart(part); // a whole part again: a half-fed ffmpeg is worthless
         }
       }
+      since++;
       slowest = Math.max(slowest, Date.now() - s);
       done++;
       if (!opts.quiet && r?.errors > 0 && done % 60 === 0) process.stdout.write(`\n  ! ${info0.errors.at(-1)}\n`);
@@ -250,20 +266,28 @@ async function renderPart(part) {
         const rate = done / Math.max((Date.now() - t0) / 1000, 1e-9);
         process.stdout.write(`  ${done}/${total} frames  ${(1000 / Math.max(rate, 0.01)).toFixed(0)} ms/frame  eta ${((total - done) / rate).toFixed(0)}s\r`);
       }
+      if (opts.png && recycle > 0 && since >= recycle && i < part.last) {
+        await page.close().catch(() => {});
+        ({ page, errs } = await newPage(W, H));
+        since = 0;
+      }
     }
     await page.close().catch(() => {});
   } catch (err) {
     await page.close().catch(() => {});
     throw err;
   }
-  active.delete(part.n);
-  stdin.end();
-  await encoded;
+  if (stdin) { active.delete(part.n); stdin.end(); await encoded; }
   if (errs.length) console.error(`\n  part ${part.n} page errors (${errs.length}): ${errs.slice(0, 3).join(' | ')}`);
   rendered.add(part.n);
 }
 
-const complete = () => false; // Task 4: a part is reusable only if it decodes to its own frame count
+/** A part is reusable only if it exists and decodes to exactly the frames it owns. */
+function complete(part) {
+  if (!existsSync(part.path)) return false;
+  const probe = spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'default=nw=1:nk=1', part.path], { encoding: 'utf8' });
+  return +probe.stdout.trim() === part.last - part.first + 1;
+}
 
 // Workers take whole parts, so ordering is structural: no shared cursor, no re-sorting.
 const worker = (id) => parts.filter((_, i) => i % jobs === id).map((p) => p.n);
@@ -272,7 +296,7 @@ async function runWorker(id) {
   const mine = new Set(worker(id));
   for (const part of queue) {
     if (!mine.has(part.n)) continue;
-    if (opts.resume && complete(part)) {
+    if (!opts.png && opts.resume && complete(part)) {
       rendered.add(part.n);
       skipped++;
       continue;
@@ -285,48 +309,45 @@ process.on('unhandledRejection', (err) => console.error(`\n  [page] ${String(err
 await Promise.all(Array.from({ length: jobs }, (_, id) => runWorker(id).catch((err) => console.error(`\n  worker ${id} aborted: ${String(err.message ?? err).slice(0, 160)}`))));
 const secs = (Date.now() - t0) / 1000;
 if (!opts.quiet) {
-  process.stdout.write(`\n  rendered ${done}/${total} frames into ${rendered.size}/${parts.length} parts in ${secs.toFixed(1)}s (${(done / secs).toFixed(1)} fps, slowest ${slowest} ms/frame)`);
-  process.stdout.write(skipped ? `  (${skipped} parts already complete, kept)\n` : '\n');
+  process.stdout.write(`\n  rendered ${done}/${total} frames${opts.png ? '' : ` into ${rendered.size}/${parts.length} parts`} in ${secs.toFixed(1)}s (${(done / secs).toFixed(1)} fps, slowest ${slowest} ms/frame)`);
+  process.stdout.write(skipped ? `  (${skipped} ${opts.png ? 'frames already on disk' : 'parts already complete'}, kept)\n` : '\n');
 }
-const missingParts = parts.filter((p) => !rendered.has(p.n) && !failed.some((i) => i >= p.first && i <= p.last));
-if (failed.length || missingParts.length) {
-  fail(`${failed.length} frames failed${missingParts.length ? ` and ${missingParts.length} parts are incomplete (${missingParts.slice(0, 12).map((p) => p.n).join(', ')})` : ''}. Re-run with --resume; parts are in ${partsDir}.`);
-}
-
-if (!opts.png) {
-  // Task 4 replaces this stub with the concat + audio step; until then the parts are the mp4s this
-  // run produced, so name them (stdout callers match on the written .mp4 path).
-  await probe.close();
-  server.server.close();
-  console.log(`parts: ${partsDir}`);
-  for (const p of parts) console.log(`  ${p.path}`);
-  process.exit(0);
-}
-
-if (opts['no-encode']) {
-  await probe.close();
-  server.server.close();
-  console.log(`frames: ${outDir}`);
-  process.exit(0);
+if (opts.png) {
+  // Frame-level completeness: on the PNG path a part is not the unit of work.
+  const missing = [];
+  for (let i = f0; i <= f1; i++) if (!existsSync(frameFile(outDir, i))) missing.push(i);
+  if (missing.length) {
+    const show = missing.slice(0, 12).join(', ') + (missing.length > 12 ? `, ... (${missing.length} total)` : '');
+    fail(`${missing.length} of ${total} frames are missing (${show}). Re-run with --resume to fill only the gaps; frames are in ${outDir}.`);
+  }
+} else {
+  const missingParts = parts.filter((p) => !rendered.has(p.n) && !failed.some((i) => i >= p.first && i <= p.last));
+  if (failed.length || missingParts.length) {
+    fail(`${failed.length} frames failed${missingParts.length ? ` and ${missingParts.length} parts are incomplete (${missingParts.slice(0, 12).map((p) => p.n).join(', ')})` : ''}. Re-run with --resume; parts are in ${partsDir}.`);
+  }
 }
 
 const audio = opts.audio ?? null;
-const down = W !== targetW || H !== targetH;
 const out = join(project, 'build', `${basename(project)}_${targetW}x${targetH}_${fps}.mp4`);
 mkdirSync(dirname(out), { recursive: true });
-const pattern = join(outDir, '%05d.png').replace(/\\/g, '/');
-const vf = down ? `scale=${targetW}:${targetH}:flags=lanczos` : 'null';
-const enc = spawnSync(
-  'ffmpeg',
-  ['-y', '-v', 'error', '-stats', '-framerate', String(fps), '-start_number', String(f0), '-i', pattern, ...(audio ? ['-i', resolve(project, audio)] : []),
-   '-map', '0:v', ...(audio ? ['-map', '1:a', '-c:a', 'aac', '-b:a', '256k'] : []),
-   '-c:v', 'libx264', '-crf', String(opts.crf ?? 16), '-preset', opts.preset ?? 'slow', '-pix_fmt', 'yuv420p', '-vf', vf, '-r', String(fps), '-frames:v', String(total), out],
-  { shell: false, stdio: 'inherit' }
-);
-if (enc.status !== 0) fail(`ffmpeg failed (exit ${enc.status}). Frames are in ${outDir}; encode by hand or pass --no-encode.`);
-if (!opts.keep) {
-  for (let i = f0; i <= f1; i++) rmSync(join(outDir, `${String(i).padStart(5, '0')}.png`), { force: true });
-  if (!existsSync(outDir) || statSync(outDir).size === 0) rmSync(outDir, { recursive: true, force: true });
+if (opts['no-encode'] && !opts.png) {
+  await probe.close();
+  server.server.close();
+  console.log(`parts: ${partsDir}`);
+  process.exit(0);
+}
+if (opts.png) {
+  const pattern = join(outDir, '%05d.png').replace(/\\/g, '/');
+  const down = W !== targetW || H !== targetH;
+  const enc = spawnSync('ffmpeg', ['-y', '-v', 'error', '-framerate', String(fps), '-start_number', String(f0), '-i', pattern, ...(audio ? ['-i', resolve(project, audio), '-map', '0:v', '-map', '1:a'] : ['-map', '0:v']), '-c:v', 'libx264', '-crf', String(opts.crf ?? 16), '-preset', opts.preset ?? 'slow', '-pix_fmt', 'yuv420p', '-vf', down ? `scale=${targetW}:${targetH}:flags=lanczos` : 'null', '-r', String(fps), out], { stdio: 'inherit' });
+  if (enc.status !== 0) fail(`ffmpeg failed (exit ${enc.status}). Frames are in ${outDir}.`);
+  if (!opts.keep) for (let i = f0; i <= f1; i++) rmSync(frameFile(outDir, i), { force: true });
+} else {
+  const list = join(partsDir, 'list.txt');
+  writeFileSync(list, parts.map((p) => `file '${p.path.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n') + '\n');
+  const cat = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list, ...(audio ? ['-i', resolve(project, audio), '-map', '0:v:0', '-map', '1:a:0', '-c:a', 'aac', '-b:a', '256k'] : []), '-c:v', 'copy', '-movflags', '+faststart', '-shortest', out], { stdio: 'inherit' });
+  if (cat.status !== 0) fail(`concat failed (exit ${cat.status}). Parts are in ${partsDir}.`);
+  if (!opts.keep) rmSync(partsDir, { recursive: true, force: true });
 }
 await probe.close();
 server.server.close();
